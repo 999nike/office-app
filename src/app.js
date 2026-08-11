@@ -189,15 +189,17 @@ function bindJobDialog(workers) {
 }
 
 function jobCard(job) {
-  return `<a class="job-card" href="${jobDetailHref(job.id)}">
-    <span class="priority-bar ${slug(job.priority)}"></span>
-    <div class="job-main"><div class="job-title-row"><h3>${escapeHtml(job.title)}</h3><span class="status ${slug(job.status)}">${job.status}</span></div>
-      <p>${escapeHtml(job.description)}</p>
-      <div class="job-meta"><span>◫ ${escapeHtml(job.project)}</span><span>◇ ${escapeHtml(job.worker)}</span><span>Updated ${formatDate(job.updatedAt)}</span></div>
-    </div>
-    <span class="priority ${slug(job.priority)}">${job.priority}</span><span class="arrow">→</span>
+  return `<article class="job-card">
+    <a class="job-card-link" href="${jobDetailHref(job.id)}">
+      <span class="priority-bar ${slug(job.priority)}"></span>
+      <div class="job-main"><div class="job-title-row"><h3>${escapeHtml(job.title)}</h3><span class="status ${slug(job.status)}">${job.status}</span></div>
+        <p>${escapeHtml(job.description)}</p>
+        <div class="job-meta"><span>◫ ${escapeHtml(job.project)}</span><span>◇ ${escapeHtml(job.worker)}</span><span>Updated ${formatDate(job.updatedAt)}</span></div>
+      </div>
+      <span class="priority ${slug(job.priority)}">${job.priority}</span><span class="arrow">→</span>
+    </a>
     <button class="job-delete" type="button" data-delete-job="${escapeHtml(job.id)}" aria-label="Delete job ${escapeHtml(job.title)}" title="Delete job">×</button>
-  </a>`;
+  </article>`;
 }
 
 function emptyState(filtered) {
