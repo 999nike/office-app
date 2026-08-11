@@ -197,11 +197,50 @@ User
 
 **Office decides the job. Code Space enforces the job. The worker only receives explicitly granted capabilities.**
 
+## Streamlined job flow patch — 11 Aug 2026 — LIVE VERIFICATION PENDING
+
+The proven dispatch machinery is being kept intact while the visible user flow is shortened.
+
+Target user path:
+
+```text
+Office -> New Job
+  -> choose Project
+  -> choose Agent / model
+  -> write Job description
+  -> choose Permissions
+  -> Create & send
+
+Code Space
+  -> receives validated Ready package
+  -> Authorise & Start / Reject
+
+Result
+  -> Done / Failed / Needs input
+```
+
+Patched now:
+
+- Office hides separate title and priority controls in the quick job form; title is derived from the description and priority remains Medium for this path
+- Agent / model selection is required
+- `Create & send` automatically creates the existing frozen dispatch snapshot, marks it Ready, and uses the same versioned Office export contract
+- the handoff opens the local Code Space receiver directly instead of requiring manual JSON export/import
+- Code Space validates the received payload with the existing `office-dispatch-package` v1 validator before adding it to the inbox
+- Code Space surfaces the received job as an authorisation decision with `Authorise & Start` and `Reject`
+- rejecting removes the received inbox package only; it does not execute anything
+- the existing explicit Code Space execution boundary remains in place
+
+This patch is intentionally small and additive. The domain job/permission/dispatch rules and mediated worker execution boundary were not rewritten.
+
+Do **not** mark this shortened Create -> Authorise -> Result path VERIFIED until it is run once on the HP from Office into the local Code Space runtime.
+
 ## Next logical work
 
-The Office-side dispatch/control path is proven for the first real read-only worker journey.
-
-Next major target is to connect a real AI worker/agent behind the already-proven Code Space boundary without weakening the current permission model.
+1. live-test the shortened Office -> Code Space handoff once on `agent-sandbox-test`
+2. if that passes, attach the first real interchangeable AI worker behind Code Space
+3. start with a cheaper/smaller Codex model for mundane read/test jobs
+4. preserve the same frozen capability grant and explicit authorisation boundary
+5. only then add automatic result return to Office if needed
 
 Before any write-capable agent test:
 
