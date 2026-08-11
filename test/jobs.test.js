@@ -93,6 +93,22 @@ test("persists, retrieves, and replaces jobs", () => {
   assert.equal(JSON.parse(values.get(STORAGE_KEY))[0].status, "Complete");
 });
 
+test("deletes only the requested persisted job", () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  const store = createJobStore(storage);
+  const first = createJob(input, now, "job-1", catalog);
+  const second = createJob({ ...input, title: "Keep this job" }, now, "job-2", catalog);
+  store.add(first);
+  store.add(second);
+
+  store.remove(first.id);
+
+  assert.equal(store.get(first.id), null);
+  assert.equal(store.get(second.id).title, "Keep this job");
+  assert.deepEqual(store.list().map((job) => job.id), [second.id]);
+});
+
 test("loads existing persisted jobs with safe permission defaults", () => {
   const values = new Map([[STORAGE_KEY, JSON.stringify([{ id: "legacy", title: "Legacy", worker: "Old local label" }])]]);
   const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };

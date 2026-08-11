@@ -42,6 +42,12 @@ export function createJobStore(storage = window.localStorage) {
       jobs[index] = job;
       return write(jobs);
     },
+    remove(id) {
+      const jobs = read();
+      const next = jobs.filter((job) => job.id !== String(id));
+      if (next.length === jobs.length) throw new Error("Job not found.");
+      return write(next);
+    },
   };
 }
 

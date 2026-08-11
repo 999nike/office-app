@@ -167,6 +167,15 @@ function renderJobs() {
     selectedStatus = button.dataset.filter;
     renderJobs();
   }));
+  document.querySelectorAll("[data-delete-job]").forEach((button) => button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const job = store.get(button.dataset.deleteJob);
+    if (job && window.confirm(`Delete the local Office job “${job.title}”? This does not affect any Code Space package or result.`)) {
+      store.remove(job.id);
+      renderJobs();
+    }
+  }));
 }
 
 function bindJobDialog(workers) {
@@ -187,6 +196,7 @@ function jobCard(job) {
       <div class="job-meta"><span>◫ ${escapeHtml(job.project)}</span><span>◇ ${escapeHtml(job.worker)}</span><span>Updated ${formatDate(job.updatedAt)}</span></div>
     </div>
     <span class="priority ${slug(job.priority)}">${job.priority}</span><span class="arrow">→</span>
+    <button class="job-delete" type="button" data-delete-job="${escapeHtml(job.id)}" aria-label="Delete job ${escapeHtml(job.title)}" title="Delete job">×</button>
   </a>`;
 }
 
