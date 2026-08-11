@@ -170,6 +170,7 @@ This is the first manually verified real Office → Code Space execution journey
 - VERIFIED: Code Space opens/selects the new package and shows an obvious `NEW JOB` state.
 - VERIFIED: `Authorise & Start / Reject` remains the explicit execution boundary.
 - VERIFIED: final read/test worker execution completed successfully after the recovery patch.
+- VERIFIED: controlled write-capable worker created the exact requested sandbox file with `Modify files` allowed and terminal still not granted.
 
 ## Hard safety boundaries
 
@@ -264,17 +265,89 @@ Code Space: 8e0e8a3  Fix direct Office dispatch receipt
 
 These recovery commits were created locally with no automatic push or merge. Unrelated ledger/working-tree changes were intentionally excluded from those commits.
 
+## Controlled write-capable dispatch milestone — 11 Aug 2026 — VERIFIED
+
+The first real write-capable Office → Code Space job has now completed successfully against the disposable `agent-sandbox-test` workspace.
+
+Frozen permissions for the write job were:
+
+```text
+Read files                 Allowed
+Modify files               Allowed
+Run tests                  Not granted
+Use terminal               Not granted
+Propose result / handoff   Allowed
+```
+
+Code Space used a separate mediated write worker rather than weakening the existing read/test runner.
+
+The write worker is deliberately narrow:
+
+- only accepts a Ready frozen package with `modifyFiles` and `proposeResult` explicitly allowed
+- rejects terminal grants
+- hard-restricts the operation to `agent-sandbox-test`
+- rejects path traversal and non-sandbox targets
+- uses create-only filesystem mode so the test file cannot overwrite an existing file
+- does not invoke a shell or terminal
+- persists structured file-created/file-modified result data and a proposed handoff
+
+Live result:
+
+```text
+Created file:
+E:\WIZZ-Server\workspaces\agent-sandbox-test\agent-write-test.txt
+
+Contents:
+Worker write permission test passed.
+```
+
+The real file was opened after execution and the exact expected text was confirmed.
+
+This proves the capability chain:
+
+```text
+Office explicitly grants Modify files
+  -> Code Space validates the frozen grant
+  -> user explicitly Authorise & Start
+  -> mediated write worker executes only inside the sandbox
+  -> requested file is created
+  -> terminal remains unavailable
+  -> structured result is persisted
+```
+
+Relevant verified Code Space commit created locally after the live test:
+
+```text
+20caf461f594daa524760e35a6a7f9955b5c8eb1
+Add controlled write-capable dispatch worker
+```
+
+Committed files:
+
+```text
+Start Worker App.cmd
+dispatch-execution-ui.js
+dispatch-results.js
+dispatch-write-worker.js
+server.js
+test/dispatch-results.test.cjs
+test/dispatch-write-worker.test.cjs
+worker-app-supervisor.js
+```
+
+Focused write/read regression checks passed before commit. No automatic push or merge was performed.
+
 ## Next logical work
 
-The read/test execution boundary is now proven. The next deliberate capability test is a **write-capable coding worker** against `agent-sandbox-test` only.
+The basic controlled execution ladder is now proven for both read/test work and a narrowly scoped write operation.
 
-Before that test:
+Next steps:
 
-1. grant `Modify files` only for the disposable sandbox job being tested
-2. keep unrestricted terminal access not granted unless a separate test explicitly requires it
-3. preserve explicit `Authorise & Start` in Code Space
-4. require the worker to modify/create only the named sandbox artifact
-5. verify the resulting file contents and that no unrelated files changed
+1. keep Office job cleanup usable so disposable test jobs can be removed without touching Code Space results or project files
+2. attach the first real interchangeable coding agent/model behind the proven Code Space capability boundary
+3. start with disposable sandbox work before any production project
+4. preserve explicit Office permission grants and Code Space `Authorise & Start / Reject`
+5. keep terminal unavailable unless a later job explicitly needs and grants it
 6. keep automatic Git push/merge disabled
 
-Do not broaden write authority to production projects until the disposable write test is proven.
+Do not broaden write authority to production projects until the real coding-agent path is proven against disposable sandbox work.
