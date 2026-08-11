@@ -1,0 +1,11 @@
+{
+  "name": "office-v0",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "check": "node --check server.mjs && node --check src/app.js && node --check src/domain/jobs.js && node --check src/domain/workers.js && node --check src/domain/dispatch.js && node --check src/data/job-store.js && node --check src/data/worker-store.js && node --check src/data/dispatch-store.js && node --check src/connectors/code-space.js",
+    "test": "node --test"
+  }
+}
