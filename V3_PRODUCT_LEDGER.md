@@ -2,58 +2,212 @@
 
 ## Purpose
 
-Office is a local-first authority and control room for defining, assigning, tracking, and reviewing jobs. It records intent and permissions; it does not execute work.
+Office is a local-first authority and control room for defining, assigning, tracking, and reviewing jobs. It records intent and permissions; it does not execute work itself.
 
 ## Architecture and current state
 
-- Dependency-free browser UI served locally, with hash-routed dashboard and job details.
-- Pure job rules in `src/domain`, browser persistence in `src/data`, UI in `src/app.js`, and an inactive future connector boundary in `src/connectors`.
-- V0 includes job creation and validation, priorities, projects, workers, six workflow statuses, timestamps, result/handoff notes, filtering, responsive dark UI, empty states, and `localStorage` persistence.
-- Office-side permissions describe allowed and explicitly denied capabilities for each job. They are editable declarations only and perform no action.
-- Local Worker Profiles can be created, viewed, edited, and deleted with identity, role, description, availability status, timestamps, and off-by-default permission suggestions. Workers are declarative identities only: they cannot start processes, access files, use tools, or connect externally.
-- Explicit profile assignment copies permission suggestions into an independent job record. Existing job denials remain denied; later profile changes or deletion do not mutate existing jobs. Legacy free-text assignments remain readable.
-- Local Dispatch Packages create immutable-style historical previews from current job and assigned-worker data. Each package freezes instructions, identity, sandbox label, priority/status, effective permissions, and explicit denials; only Draft/Ready/Cancelled lifecycle state changes afterward.
-- Dispatch remains preview/data only. It never contacts a worker, executes a permission or command, calls a connector, or accesses a target.
-- Ready Dispatch Packages can be exported as browser-local JSON handoff files using the frozen package snapshot only. The versioned `office-dispatch-package` format contains only the selected package's execution-relevant metadata, capability lists, and lifecycle state; export never triggers a worker or connector.
-- Target-project selection is now supplied by a narrow, read-only local Code Space catalog. Office requests only direct project-folder names from Code Space's approved workspace root, can refresh that list explicitly, and validates new jobs against the current catalog. It never receives paths, file contents, or arbitrary filesystem access; when Code Space is unavailable, project selection is disabled without a hard-coded fallback.
-- The UI now uses a unified dark control-room system derived from the local design reference: persistent navigation, real-data summary metrics, workflow board, worker availability, attention queue, compact inspectors, permission matrices, and polished dispatch panels. Dashboard, Jobs, Workers, Dispatch, and the read-only current-state Ledger are distinct responsive views.
+- Dependency-free browser UI served locally, with Dashboard, Jobs, Workers, Dispatch, and Ledger views.
+- Pure job/worker/dispatch rules live under `src/domain`, browser persistence under `src/data`, UI in `src/app.js`, and narrow integration code under `src/connectors`.
+- Job creation includes title, instructions, priority, target project, worker assignment, workflow status, timestamps, and result/handoff state.
+- Office-side permissions are explicit declarations that become part of the job and dispatch contract.
+- Worker Profiles can be created, viewed, edited, and deleted with identity, role, description, availability status, timestamps, and default permission suggestions.
+- Explicit worker assignment copies permission suggestions into an independent job record. Existing denials remain denied; later worker edits or deletion do not mutate existing jobs.
+- Dispatch Packages freeze instructions, worker identity, sandbox target, priority/status, effective permissions, explicit denials, and lifecycle state.
+- Ready Dispatch Packages export as versioned `office-dispatch-package` v1 JSON using only the frozen package snapshot.
+- Target-project selection is supplied dynamically by Code Space through a narrow local name-only catalog. Office no longer contains a hard-coded production project list.
+- Office validates new jobs against the current Code Space project catalog and disables project selection/job creation if that catalog is unavailable.
+- The UI uses a dark control-room layout with real-data metrics, workflow board, worker availability, permission matrices, dispatch previews, and a read-only current-state ledger.
+
+## Verified cross-app milestone — 11 Aug 2026
+
+The complete Office → Code Space dispatch path has now been manually proven on the HP using a disposable sandbox.
+
+### Dynamic project discovery — VERIFIED
+
+Code Space exposes a local read-only project catalog from:
+
+```text
+E:\WIZZ-Server\workspaces
+```
+
+Office successfully discovered current direct workspace folders including:
+
+```text
+agent-sandbox-test
+junkz-shooter-landing
+memory-app
+office-app
+Smokey-Space
+space-junkz-shooter
+```
+
+`code-space` itself is excluded by the catalog endpoint.
+
+Verified properties:
+
+- Office has no hard-coded production project list
+- Code Space returns names only, never arbitrary paths or file contents
+- only direct workspace folders are returned
+- Code Space app folder is excluded
+- exact Office loopback origin is enforced for the catalog
+- Office has an explicit Refresh projects action
+- Code Space unavailable => project selection and job creation fail closed with no static fallback
+- `createJob` validates the selected project against the current returned catalog
+
+### Automated Office verification — VERIFIED locally
+
+Command:
+
+```powershell
+cd E:\WIZZ-Server\workspaces\office-app
+node --test
+```
+
+Result:
+
+```text
+29 tests
+29 pass
+0 fail
+```
+
+Coverage includes:
+
+- worker persistence and normalization
+- job persistence and validation
+- current project-catalog validation
+- Code Space unavailable behavior
+- dispatch snapshot creation
+- frozen dispatch snapshots
+- permission preservation
+- Ready/export checks
+- safe Code Space project-name catalog behavior
+
+### First real dispatch package — VERIFIED
+
+Office job:
+
+```text
+Title: Agent Sandbox Read Test
+Target: agent-sandbox-test
+Worker: Test Worker Alpha
+Priority: Medium
+Status before dispatch: Ready
+```
+
+Instructions:
+
+```text
+Read the files in agent-sandbox-test, run the approved test, report what the code does and whether the test passes. Do not modify any files.
+```
+
+Frozen permissions:
+
+```text
+Read files                 Allowed
+Run tests                  Allowed
+Propose result / handoff   Allowed
+Modify files               Explicitly denied
+Use terminal               Not granted
+```
+
+Verified Office behavior:
+
+- job created against the dynamically discovered `agent-sandbox-test` target
+- worker assignment preserved correctly
+- status changed Inbox -> Ready
+- Dispatch package created from the Ready job
+- frozen permission snapshot matched the job exactly
+- package marked Ready
+- package exported as Office dispatch JSON
+- Office itself performed no filesystem access, test execution, terminal use, or code modification
+
+### Code Space handoff result — VERIFIED end to end
+
+The exported Office package was imported into Code Space and validated successfully.
+
+Code Space then executed its mediated read/test worker against the disposable sandbox only.
+
+Observed result:
+
+```text
+Files inspected: 2
+- math.js
+- math.test.js
+
+Tests run: 1
+Result: PASS
+Detected code: function add
+```
+
+The structured proposed handoff was persisted in Code Space.
+
+Critically, the dispatch retained:
+
+```text
+Modify files   Explicitly denied
+Use terminal   Not granted
+```
+
+No file-write capability or general terminal capability was granted to the worker.
+
+This is the first manually verified real Office → Code Space execution journey.
 
 ## Verification status
 
-- Verified: static HTTP delivery of the HTML, JavaScript, and CSS assets.
-- Verified for this patch: HTTP 200 with correct JavaScript content types for the Worker Profile domain, persistence, and updated UI modules; source audit found no execution, shell, filesystem, network, or connector calls in the new Worker Profile code.
-- Verified for Dispatch: HTTP 200 with correct content types for the updated UI, dispatch domain, dispatch store, and stylesheet. Source audit found no process/command launching, filesystem execution, network APIs, connector calls, or worker dispatch calls.
-- Verified for Dispatch export: the updated UI, serializer, and stylesheet return HTTP 200; source review confirms export projects only the frozen package data into a versioned JSON Blob and never reads current jobs/workers or calls a connector.
-- Project-catalog patch: source review confirms Office has no hard-coded production project list, receives names only, and fails job creation unless the chosen name is in the current Code Space catalog. The Code Space endpoint is GET-only and applies exact `http://127.0.0.1:4176` CORS; it enumerates direct folders only and excludes its own application folder.
-- UI redesign verification: route/render wiring and browser asset references were source-reviewed; final static HTTP checks are recorded in the current handoff. Pixel-level and interactive browser verification remain outstanding because the local browser automation executable is unavailable in this environment.
-- Not yet verified in the available environment: Node syntax/unit commands and the browser download flow for a Ready package. The environment lacks a usable Linux Node/browser runtime.
+- VERIFIED: Office static delivery and UI routes.
+- VERIFIED: worker profiles and persistence.
+- VERIFIED: job creation, assignment, status flow, and persistence.
+- VERIFIED: dispatch snapshot creation and frozen permission state.
+- VERIFIED: Ready package export.
+- VERIFIED: dynamic Code Space project catalog and fail-closed unavailable state.
+- VERIFIED: Office local automated suite at 29/29 passing.
+- VERIFIED: Office package imported and validated by Code Space.
+- VERIFIED: first real disposable read/test/report job completed successfully in Code Space.
+- VERIFIED: resulting worker permissions remained read/test/propose only; Modify files stayed denied and terminal stayed not granted.
 
 ## Hard safety boundaries
 
-- Office remains local inside its own workspace. Its only active integration is the local, name-only Code Space project catalog at the exact approved loopback origin.
-- No connection to external apps, services, repositories, or real projects.
-- No connector or worker execution is active. No job permission executes itself.
-- Examples and future validation must use disposable sandbox data only.
+- Office is the authority/controller; it does not execute project work itself.
+- importing, selecting, creating, or marking a Dispatch Package Ready must never execute the job.
+- execution requires an explicit user Start action in Code Space.
+- capabilities are an allow-list, not advisory labels.
+- anything denied or not granted must not be supplied to the worker.
+- target-project metadata must not become arbitrary filesystem authority.
+- no automatic Git push or merge behavior.
+- no silent permission escalation.
+- result/handoff authority is separate from code-mutation authority.
+- examples and first-stage execution tests use disposable sandbox data only.
 
-## Intended controlled workflow — direction only
+## Current controlled workflow
 
-User → Office creates and controls a job → worker receives only the job's explicit permissions → Code Space later provides an isolated execution environment → worker returns a result to Office → user reviews the result.
+```text
+User
+  -> Office creates job
+  -> Office assigns worker
+  -> Office freezes exact permissions
+  -> Office marks job/package Ready
+  -> Office exports dispatch JSON
+  -> Code Space imports + validates
+  -> user explicitly starts task
+  -> Code Space enforces sandbox + capability boundary
+  -> worker reads/tests only what was granted
+  -> structured result/handoff is persisted
+```
 
-Office is the authority/controller. Code Space will later be the workshop/execution environment. Workers never receive broad access by default.
+**Office decides the job. Code Space enforces the job. The worker only receives explicitly granted capabilities.**
 
-A future job permission envelope may contain:
+## Next logical work
 
-- task/instructions
-- sandbox project
-- assigned worker
-- allowed code/files
-- allowed commands/tools
-- optional scoped memory/context permission
-- result/handoff
-- explicit forbidden capabilities
+The Office-side dispatch/control path is proven for the first real read-only worker journey.
 
-This envelope is product direction, not an implemented execution contract. Current permissions are local Office records only.
+Next major target is to connect a real AI worker/agent behind the already-proven Code Space boundary without weakening the current permission model.
 
-## Next logical work — not implemented
+Before any write-capable agent test:
 
-Add a local snapshot-difference review that compares a new Draft package with the most recent package for the same job before the user marks it Ready. Execution and connectors remain out of scope.
+- keep Modify files denied by default
+- keep unrestricted terminal access unavailable
+- preserve explicit Start boundary
+- preserve project sandbox enforcement
+- preserve structured result/handoff
+- test any future write permission only against a disposable sandbox first
