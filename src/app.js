@@ -27,6 +27,8 @@ const formatDate = (value) => new Intl.DateTimeFormat("en-GB", {
 
 const slug = (value = "") => String(value).toLowerCase().replaceAll(" ", "-");
 
+const jobDetailHref = (id) => `#/jobs/${encodeURIComponent(String(id))}`;
+
 function shell(content, active = "dashboard") {
   return `
     <div class="app-shell">
@@ -111,7 +113,7 @@ function metricCard(icon, label, value, note, tone) {
 }
 
 function workflowColumn(status, jobs) {
-  return `<div class="workflow-column ${slug(status)}"><div class="workflow-column-head"><strong>${status}</strong><span>${jobs.length}</span></div><div class="workflow-stack">${jobs.slice(0, 3).map((job) => `<a href="#/jobs/${encodeURIComponent(job.id)}"><small>${escapeHtml(job.id.slice(0, 8).toUpperCase())}</small><strong>${escapeHtml(job.title)}</strong><span>${escapeHtml(job.project)}</span></a>`).join("") || '<p>Empty</p>'}</div></div>`;
+  return `<div class="workflow-column ${slug(status)}"><div class="workflow-column-head"><strong>${status}</strong><span>${jobs.length}</span></div><div class="workflow-stack">${jobs.slice(0, 3).map((job) => `<a href="${jobDetailHref(job.id)}"><small>${escapeHtml(job.id.slice(0, 8).toUpperCase())}</small><strong>${escapeHtml(job.title)}</strong><span>${escapeHtml(job.project)}</span></a>`).join("") || '<p>Empty</p>'}</div></div>`;
 }
 
 function dashboardWorkerRow(worker) {
@@ -119,7 +121,7 @@ function dashboardWorkerRow(worker) {
 }
 
 function attentionJob(job) {
-  return `<a class="attention-job" href="#/jobs/${encodeURIComponent(job.id)}"><span class="status ${slug(job.status)}">${job.status}</span><div><strong>${escapeHtml(job.title)}</strong><small>${escapeHtml(job.project)} · ${escapeHtml(job.worker)}</small></div><span>→</span></a>`;
+  return `<a class="attention-job" href="${jobDetailHref(job.id)}"><span class="status ${slug(job.status)}">${job.status}</span><div><strong>${escapeHtml(job.title)}</strong><small>${escapeHtml(job.project)} · ${escapeHtml(job.worker)}</small></div><span>→</span></a>`;
 }
 
 function renderJobs() {
@@ -178,7 +180,7 @@ function bindJobDialog(workers) {
 }
 
 function jobCard(job) {
-  return `<a class="job-card" href="#/jobs/${encodeURIComponent(job.id)}">
+  return `<a class="job-card" href="${jobDetailHref(job.id)}">
     <span class="priority-bar ${slug(job.priority)}"></span>
     <div class="job-main"><div class="job-title-row"><h3>${escapeHtml(job.title)}</h3><span class="status ${slug(job.status)}">${job.status}</span></div>
       <p>${escapeHtml(job.description)}</p>
@@ -220,7 +222,8 @@ function handleCreate(event) {
     const input = { ...Object.fromEntries(form), worker: worker?.name || "Unassigned", ...permissionValues(form) };
     const job = createJob(input, new Date(), crypto.randomUUID(), projectCatalog.projects);
     store.add(job);
-    location.hash = `#/jobs/${job.id}`;
+    document.dispatchEvent(new CustomEvent("office:job-created", { detail: { jobId: job.id } }));
+    location.hash = jobDetailHref(job.id);
   } catch (error) {
     document.querySelector("#form-error").textContent = error.message;
   }
@@ -529,7 +532,7 @@ function bindDispatchActions(item) {
 
 function renderLedger() {
   const entries = [
-    ...store.list().map((job) => ({ type: "Job", title: job.title, detail: `${job.status} · ${job.project}`, time: job.updatedAt, tone: slug(job.status), href: `#/jobs/${encodeURIComponent(job.id)}` })),
+    ...store.list().map((job) => ({ type: "Job", title: job.title, detail: `${job.status} · ${job.project}`, time: job.updatedAt, tone: slug(job.status), href: jobDetailHref(job.id) })),
     ...workerStore.list().map((worker) => ({ type: "Worker", title: worker.name, detail: `${worker.status} · ${worker.role}`, time: worker.updatedAt, tone: slug(worker.status), href: "#/workers" })),
     ...dispatchStore.list().map((item) => ({ type: "Dispatch", title: item.jobTitle || "Untitled package", detail: `${item.packageStatus} · ${item.workerName}`, time: item.updatedAt, tone: slug(item.packageStatus), href: `#/dispatch/${encodeURIComponent(item.id)}` })),
   ].filter((entry) => entry.time).sort((a, b) => new Date(b.time) - new Date(a.time));

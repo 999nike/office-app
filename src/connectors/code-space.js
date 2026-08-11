@@ -1,4 +1,14 @@
 const CODE_SPACE_URL = "http://127.0.0.1:8090/";
+const CODE_SPACE_WINDOW_NAME = "code-space";
+let reservedWindow = null;
+
+function isUsableWindow(target) {
+  try {
+    return Boolean(target && !target.closed);
+  } catch {
+    return false;
+  }
+}
 
 function encodePackage(value) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
@@ -11,7 +21,17 @@ export const codeSpaceConnector = Object.freeze({
   available: true,
   url: CODE_SPACE_URL,
   reserve() {
-    return window.open("", "code-space");
+    if (isUsableWindow(reservedWindow)) {
+      reservedWindow.focus?.();
+      return reservedWindow;
+    }
+
+    // A named navigation reuses the existing Code Space browsing context when
+    // the browser can target it. Supplying the real URL avoids a transient
+    // about:blank tab when no such context exists yet.
+    reservedWindow = window.open(CODE_SPACE_URL, CODE_SPACE_WINDOW_NAME);
+    reservedWindow?.focus?.();
+    return reservedWindow;
   },
   async dispatch(packageExport, targetWindow = null) {
     if (!packageExport || packageExport.format !== "office-dispatch-package" || packageExport.packageStatus !== "Ready") {
@@ -20,8 +40,12 @@ export const codeSpaceConnector = Object.freeze({
 
     const payload = encodePackage(packageExport);
     const url = `${CODE_SPACE_URL}?officeDispatch=${encodeURIComponent(payload)}`;
-    const target = targetWindow || window.open("", "code-space");
-    if (!target) throw new Error("Code Space could not be opened. Allow the Office pop-up and try again.");
+    const target = isUsableWindow(targetWindow)
+      ? targetWindow
+      : isUsableWindow(reservedWindow)
+        ? reservedWindow
+        : null;
+    if (!target) throw new Error("Code Space could not be reserved. Allow the Office pop-up and try again.");
     target.location = url;
     target.focus?.();
     return { sent: true, packageId: packageExport.packageId };

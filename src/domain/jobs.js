@@ -35,7 +35,7 @@ export function createJob(input, now = new Date(), id = crypto.randomUUID(), ava
 
   const timestamp = now.toISOString();
   return {
-    id,
+    id: String(id),
     title,
     description,
     priority: input.priority,

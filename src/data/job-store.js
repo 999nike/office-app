@@ -3,7 +3,13 @@ import { normalizePermissions } from "../domain/jobs.js";
 const STORAGE_KEY = "office-v0.jobs";
 
 function normalizeStoredJob(job) {
-  return { ...job, worker: job.worker || "Unassigned", workerId: job.workerId || null, ...normalizePermissions(job) };
+  return {
+    ...job,
+    id: job?.id == null ? "" : String(job.id),
+    worker: job.worker || "Unassigned",
+    workerId: job.workerId || null,
+    ...normalizePermissions(job),
+  };
 }
 
 export function createJobStore(storage = window.localStorage) {

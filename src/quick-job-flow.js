@@ -60,19 +60,9 @@ function tuneJobForm() {
   if (submit) submit.textContent = "Create & send";
 }
 
-async function createAndSendDispatch(captured, codeSpaceWindow) {
-  await Promise.resolve();
-
-  const job = jobs.list().find((item) =>
-    !processedJobs.has(item.id) &&
-    item.description === captured.description &&
-    item.project === captured.project &&
-    item.workerId === captured.workerId
-  );
-
-  if (!job) {
-    throw new Error("Office created the job but the quick-flow handoff could not resolve its saved record.");
-  }
+async function createAndSendDispatch(jobId, codeSpaceWindow) {
+  const job = jobs.get(jobId);
+  if (!job || processedJobs.has(job.id)) return;
 
   const worker = workers.get(job.workerId);
   if (!worker) throw new Error("Choose an agent / model before creating the job.");
@@ -112,16 +102,15 @@ document.addEventListener("submit", (event) => {
     return;
   }
 
-  // Capture the exact values before the core Office submit handler can rerender/reset the form.
-  const captured = {
-    description: String(description?.value || "").trim(),
-    project: String(project?.value || ""),
-    workerId: String(worker?.value || "")
+  // The core Office submit handler emits this only after persisting the job.
+  // That gives the handoff the exact saved record, not a heuristic field match.
+  const sendCreatedJob = (createdEvent) => {
+    document.removeEventListener("office:job-created", sendCreatedJob);
+    createAndSendDispatch(createdEvent.detail?.jobId, codeSpaceWindow).catch((error) => {
+      console.error("Could not send Office job to Code Space:", error);
+    });
   };
-
-  queueMicrotask(() => createAndSendDispatch(captured, codeSpaceWindow).catch((error) => {
-    console.error("Could not send Office job to Code Space:", error);
-  }));
+  document.addEventListener("office:job-created", sendCreatedJob);
 }, true);
 
 const observer = new MutationObserver(tuneJobForm);

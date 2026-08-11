@@ -16,6 +16,11 @@ test("creates a normalized inbox job", () => {
   assert.deepEqual(job.deniedPermissions, defaultPermissionSet());
 });
 
+test("canonicalizes an ID for stable hash-route lookup", () => {
+  const job = createJob(input, now, 42, catalog);
+  assert.equal(job.id, "42");
+});
+
 test("copies worker defaults on assignment and preserves job denials", () => {
   const job = createJob({ ...input, deniedPermissions: { useTerminal: true } }, now, "job-1", catalog);
   const worker = {
