@@ -60,7 +60,7 @@ function tuneJobForm() {
   if (submit) submit.textContent = "Create & send";
 }
 
-async function createAndSendDispatch(captured, codeSpaceWindow) {
+async function createAndSendDispatch(captured) {
   await Promise.resolve();
 
   const job = jobs.list().find((item) =>
@@ -83,7 +83,7 @@ async function createAndSendDispatch(captured, codeSpaceWindow) {
   processedJobs.add(job.id);
 
   const exported = createDispatchExport(ready);
-  await codeSpaceConnector.dispatch(exported, codeSpaceWindow);
+  await codeSpaceConnector.dispatch(exported);
 }
 
 document.addEventListener("submit", (event) => {
@@ -112,8 +112,7 @@ document.addEventListener("submit", (event) => {
     workerId: String(worker?.value || "")
   };
 
-  const codeSpaceWindow = codeSpaceConnector.open();
-  queueMicrotask(() => createAndSendDispatch(captured, codeSpaceWindow).catch((error) => {
+  queueMicrotask(() => createAndSendDispatch(captured).catch((error) => {
     console.error("Could not send Office job to Code Space:", error);
   }));
 }, true);
