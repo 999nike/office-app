@@ -60,7 +60,7 @@ function tuneJobForm() {
   if (submit) submit.textContent = "Create & send";
 }
 
-async function createAndSendDispatch(captured) {
+async function createAndSendDispatch(captured, codeSpaceWindow) {
   await Promise.resolve();
 
   const job = jobs.list().find((item) =>
@@ -83,7 +83,7 @@ async function createAndSendDispatch(captured) {
   processedJobs.add(job.id);
 
   const exported = createDispatchExport(ready);
-  await codeSpaceConnector.dispatch(exported);
+  await codeSpaceConnector.dispatch(exported, codeSpaceWindow);
 }
 
 document.addEventListener("submit", (event) => {
@@ -105,6 +105,13 @@ document.addEventListener("submit", (event) => {
   }
   worker?.setCustomValidity("");
 
+  // Reserve/reuse Code Space while this trusted submit gesture is still active.
+  const codeSpaceWindow = codeSpaceConnector.reserve();
+  if (!codeSpaceWindow) {
+    console.error("Could not reserve Code Space window. Allow the Office pop-up and try again.");
+    return;
+  }
+
   // Capture the exact values before the core Office submit handler can rerender/reset the form.
   const captured = {
     description: String(description?.value || "").trim(),
@@ -112,7 +119,7 @@ document.addEventListener("submit", (event) => {
     workerId: String(worker?.value || "")
   };
 
-  queueMicrotask(() => createAndSendDispatch(captured).catch((error) => {
+  queueMicrotask(() => createAndSendDispatch(captured, codeSpaceWindow).catch((error) => {
     console.error("Could not send Office job to Code Space:", error);
   }));
 }, true);
