@@ -10,18 +10,19 @@ function encodePackage(value) {
 export const codeSpaceConnector = Object.freeze({
   available: true,
   url: CODE_SPACE_URL,
-  open() {
-    return window.open(CODE_SPACE_URL, "code-space");
+  reserve() {
+    return window.open("", "code-space");
   },
-  async dispatch(packageExport) {
+  async dispatch(packageExport, targetWindow = null) {
     if (!packageExport || packageExport.format !== "office-dispatch-package" || packageExport.packageStatus !== "Ready") {
       throw new Error("Only a Ready Office dispatch package can be sent to Code Space.");
     }
 
     const payload = encodePackage(packageExport);
     const url = `${CODE_SPACE_URL}?officeDispatch=${encodeURIComponent(payload)}`;
-    const target = window.open(url, "code-space");
+    const target = targetWindow || window.open("", "code-space");
     if (!target) throw new Error("Code Space could not be opened. Allow the Office pop-up and try again.");
+    target.location = url;
     target.focus?.();
     return { sent: true, packageId: packageExport.packageId };
   },
