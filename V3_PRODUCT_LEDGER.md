@@ -165,6 +165,11 @@ This is the first manually verified real Office → Code Space execution journey
 - VERIFIED: Office package imported and validated by Code Space.
 - VERIFIED: first real disposable read/test/report job completed successfully in Code Space.
 - VERIFIED: resulting worker permissions remained read/test/propose only; Modify files stayed denied and terminal stayed not granted.
+- VERIFIED: streamlined Office `Create & send` handoff reaches Code Space without manual JSON import.
+- VERIFIED: existing Code Space tab is reused in the final browser recovery test; no duplicate Code Space tab opened.
+- VERIFIED: Code Space opens/selects the new package and shows an obvious `NEW JOB` state.
+- VERIFIED: `Authorise & Start / Reject` remains the explicit execution boundary.
+- VERIFIED: final read/test worker execution completed successfully after the recovery patch.
 
 ## Hard safety boundaries
 
@@ -187,21 +192,21 @@ User
   -> Office assigns worker
   -> Office freezes exact permissions
   -> Office marks job/package Ready
-  -> Office exports dispatch JSON
-  -> Code Space imports + validates
-  -> user explicitly starts task
+  -> Office sends the Ready package directly to Code Space
+  -> Code Space validates + selects the package
+  -> user explicitly chooses Authorise & Start or Reject
   -> Code Space enforces sandbox + capability boundary
-  -> worker reads/tests only what was granted
+  -> worker receives only granted capabilities
   -> structured result/handoff is persisted
 ```
 
 **Office decides the job. Code Space enforces the job. The worker only receives explicitly granted capabilities.**
 
-## Streamlined job flow patch — 11 Aug 2026 — LIVE VERIFICATION PENDING
+## Streamlined job flow recovery — 11 Aug 2026 — VERIFIED
 
-The proven dispatch machinery is being kept intact while the visible user flow is shortened.
+The shortened Office → Code Space path is now live-verified on the HP.
 
-Target user path:
+Verified user path:
 
 ```text
 Office -> New Job
@@ -212,41 +217,64 @@ Office -> New Job
   -> Create & send
 
 Code Space
+  -> reuses the existing Code Space tab
   -> receives validated Ready package
+  -> opens/selects Dispatch Inbox package
+  -> shows NEW JOB
   -> Authorise & Start / Reject
 
 Result
-  -> Done / Failed / Needs input
+  -> mediated worker runs only after explicit authorisation
+  -> structured result is persisted
 ```
 
-Patched now:
+Recovery work fixed two regressions without changing the permission or execution architecture:
 
-- Office hides separate title and priority controls in the quick job form; title is derived from the description and priority remains Medium for this path
-- Agent / model selection is required
-- `Create & send` automatically creates the existing frozen dispatch snapshot, marks it Ready, and uses the same versioned Office export contract
-- the handoff opens the local Code Space receiver directly instead of requiring manual JSON export/import
-- Code Space validates the received payload with the existing `office-dispatch-package` v1 validator before adding it to the inbox
-- Code Space surfaces the received job as an authorisation decision with `Authorise & Start` and `Reject`
-- rejecting removes the received inbox package only; it does not execute anything
-- the existing explicit Code Space execution boundary remains in place
+1. Office job-detail routing was made stable by canonicalising job IDs and using one encoded detail-route helper.
+2. Quick handoff now uses the exact persisted job ID instead of rediscovering the new job by matching form fields.
+3. Code Space receipt now selects the validated package in-page instead of relying on reload + timer reselection.
+4. Office window reservation/dispatch lifecycle now reuses the stable `code-space` named tab and no longer leaves an `about:blank` or fallback duplicate tab.
 
-This patch is intentionally small and additive. The domain job/permission/dispatch rules and mediated worker execution boundary were not rewritten.
+Focused checks reported by Codex:
 
-Do **not** mark this shortened Create -> Authorise -> Result path VERIFIED until it is run once on the HP from Office into the local Code Space runtime.
+- syntax checks for changed JavaScript files passed
+- Office focused job/dispatch tests passed
+- Code Space focused office-dispatch-link / dispatch-package / dispatch-runner tests passed
+- connector-focused Code Space tab reuse tests passed
+- one unrelated full Code Space suite failure remains under WSL because Windows paths resolve differently in `office-project-catalog.test.cjs`; this was not introduced by the recovery changes
+
+Final manual browser verification proved:
+
+- one existing Code Space tab was reused
+- new package arrived automatically
+- correct new package was selected
+- `NEW JOB` indicator appeared
+- frozen permissions remained visible and unchanged
+- `Authorise & Start / Reject` were offered
+- the worker read the sandbox files and completed the approved test successfully
+- Modify files remained explicitly denied
+- terminal remained not granted
+
+Local recovery commits recorded after verification:
+
+```text
+Office:     31fa649  Fix Office job recovery and Code Space tab reuse
+Code Space: 8e0e8a3  Fix direct Office dispatch receipt
+```
+
+These recovery commits were created locally with no automatic push or merge. Unrelated ledger/working-tree changes were intentionally excluded from those commits.
 
 ## Next logical work
 
-1. live-test the shortened Office -> Code Space handoff once on `agent-sandbox-test`
-2. if that passes, attach the first real interchangeable AI worker behind Code Space
-3. start with a cheaper/smaller Codex model for mundane read/test jobs
-4. preserve the same frozen capability grant and explicit authorisation boundary
-5. only then add automatic result return to Office if needed
+The read/test execution boundary is now proven. The next deliberate capability test is a **write-capable coding worker** against `agent-sandbox-test` only.
 
-Before any write-capable agent test:
+Before that test:
 
-- keep Modify files denied by default
-- keep unrestricted terminal access unavailable
-- preserve explicit Start boundary
-- preserve project sandbox enforcement
-- preserve structured result/handoff
-- test any future write permission only against a disposable sandbox first
+1. grant `Modify files` only for the disposable sandbox job being tested
+2. keep unrestricted terminal access not granted unless a separate test explicitly requires it
+3. preserve explicit `Authorise & Start` in Code Space
+4. require the worker to modify/create only the named sandbox artifact
+5. verify the resulting file contents and that no unrelated files changed
+6. keep automatic Git push/merge disabled
+
+Do not broaden write authority to production projects until the disposable write test is proven.
