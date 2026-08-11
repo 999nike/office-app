@@ -13,16 +13,15 @@ export const codeSpaceConnector = Object.freeze({
   open() {
     return window.open(CODE_SPACE_URL, "code-space");
   },
-  async dispatch(packageExport, targetWindow = null) {
+  async dispatch(packageExport) {
     if (!packageExport || packageExport.format !== "office-dispatch-package" || packageExport.packageStatus !== "Ready") {
       throw new Error("Only a Ready Office dispatch package can be sent to Code Space.");
     }
 
     const payload = encodePackage(packageExport);
     const url = `${CODE_SPACE_URL}?officeDispatch=${encodeURIComponent(payload)}`;
-    const target = targetWindow && !targetWindow.closed ? targetWindow : window.open(CODE_SPACE_URL, "code-space");
+    const target = window.open(url, "code-space");
     if (!target) throw new Error("Code Space could not be opened. Allow the Office pop-up and try again.");
-    target.location.replace(url);
     target.focus?.();
     return { sent: true, packageId: packageExport.packageId };
   },
