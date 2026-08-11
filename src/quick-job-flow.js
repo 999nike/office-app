@@ -60,21 +60,20 @@ function tuneJobForm() {
   if (submit) submit.textContent = "Create & send";
 }
 
-async function createAndSendDispatch(form, codeSpaceWindow) {
+async function createAndSendDispatch(captured, codeSpaceWindow) {
   await Promise.resolve();
 
-  const data = new FormData(form);
-  const description = String(data.get("description") || "").trim();
-  const project = String(data.get("project") || "");
-  const workerId = String(data.get("workerId") || "");
   const job = jobs.list().find((item) =>
     !processedJobs.has(item.id) &&
-    item.description === description &&
-    item.project === project &&
-    item.workerId === workerId
+    item.description === captured.description &&
+    item.project === captured.project &&
+    item.workerId === captured.workerId
   );
 
-  if (!job) return;
+  if (!job) {
+    throw new Error("Office created the job but the quick-flow handoff could not resolve its saved record.");
+  }
+
   const worker = workers.get(job.workerId);
   if (!worker) throw new Error("Choose an agent / model before creating the job.");
 
@@ -93,7 +92,9 @@ document.addEventListener("submit", (event) => {
 
   const description = form.elements.namedItem("description");
   const title = form.elements.namedItem("title");
+  const project = form.elements.namedItem("project");
   const worker = form.elements.namedItem("workerId");
+
   if (title) title.value = titleFromDescription(description?.value);
   if (worker && !worker.value) {
     worker.setCustomValidity("Choose an agent / model.");
@@ -104,8 +105,15 @@ document.addEventListener("submit", (event) => {
   }
   worker?.setCustomValidity("");
 
+  // Capture the exact values before the core Office submit handler can rerender/reset the form.
+  const captured = {
+    description: String(description?.value || "").trim(),
+    project: String(project?.value || ""),
+    workerId: String(worker?.value || "")
+  };
+
   const codeSpaceWindow = codeSpaceConnector.open();
-  queueMicrotask(() => createAndSendDispatch(form, codeSpaceWindow).catch((error) => {
+  queueMicrotask(() => createAndSendDispatch(captured, codeSpaceWindow).catch((error) => {
     console.error("Could not send Office job to Code Space:", error);
   }));
 }, true);
