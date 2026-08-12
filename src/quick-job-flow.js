@@ -61,7 +61,7 @@ function tuneJobForm() {
   if (submit) submit.textContent = "Create & send";
 }
 
-async function createAndSendDispatch(jobId, codeSpaceWindow) {
+async function createAndSendDispatch(jobId) {
   const job = jobs.get(jobId);
   if (!job || processedJobs.has(job.id)) return;
 
@@ -74,10 +74,10 @@ async function createAndSendDispatch(jobId, codeSpaceWindow) {
   processedJobs.add(job.id);
 
   const exported = createDispatchExport(ready);
-  await codeSpaceConnector.dispatch(exported, codeSpaceWindow);
+  await codeSpaceConnector.dispatch(exported);
 }
 
-async function createAndSendDispatchBatch(jobIds, codeSpaceWindow) {
+async function createAndSendDispatchBatch(jobIds) {
   const exports = [];
   for (const jobId of jobIds) {
     const job = jobs.get(jobId);
@@ -89,7 +89,7 @@ async function createAndSendDispatchBatch(jobIds, codeSpaceWindow) {
     processedJobs.add(job.id);
     exports.push(createDispatchExport(ready));
   }
-  await codeSpaceConnector.dispatchMany(exports, codeSpaceWindow);
+  await codeSpaceConnector.dispatchMany(exports);
 }
 
 document.addEventListener("submit", (event) => {
@@ -98,7 +98,6 @@ document.addEventListener("submit", (event) => {
 
   const description = form.elements.namedItem("description");
   const title = form.elements.namedItem("title");
-  const project = form.elements.namedItem("project");
   const worker = form.elements.namedItem("workerId");
 
   if (title) title.value = titleFromDescription(description?.value);
@@ -111,26 +110,20 @@ document.addEventListener("submit", (event) => {
   }
   worker?.setCustomValidity("");
 
-  // Reserve/reuse Code Space while this trusted submit gesture is still active.
-  const codeSpaceWindow = codeSpaceConnector.reserve();
-  if (!codeSpaceWindow) {
-    console.error("Could not reserve Code Space window. Allow the Office pop-up and try again.");
-    return;
-  }
-
-  // The core Office submit handler emits this only after persisting the job.
-  // That gives the handoff the exact saved record, not a heuristic field match.
+  // The core Office submit handler emits these only after persisting the job.
+  // Dispatch now goes through a hidden Code Space bridge and never opens or
+  // navigates a Code Space browser tab from Create & send.
   const sendCreatedJob = (createdEvent) => {
     document.removeEventListener("office:job-created", sendCreatedJob);
     document.removeEventListener("office:jobs-created", sendCreatedJobs);
-    createAndSendDispatch(createdEvent.detail?.jobId, codeSpaceWindow).catch((error) => {
+    createAndSendDispatch(createdEvent.detail?.jobId).catch((error) => {
       console.error("Could not send Office job to Code Space:", error);
     });
   };
   const sendCreatedJobs = (createdEvent) => {
     document.removeEventListener("office:job-created", sendCreatedJob);
     document.removeEventListener("office:jobs-created", sendCreatedJobs);
-    createAndSendDispatchBatch(createdEvent.detail?.jobIds || [], codeSpaceWindow).catch((error) => {
+    createAndSendDispatchBatch(createdEvent.detail?.jobIds || []).catch((error) => {
       console.error("Could not send Office jobs to Code Space:", error);
     });
   };
