@@ -53,3 +53,29 @@ test("dispatch navigates the reserved target without opening another window", as
     restore();
   }
 });
+
+test("dispatchMany sends one ordered batch to the existing Code Space tab without navigation", async () => {
+  const calls = [];
+  const messages = [];
+  const target = { closed: false, focus() {}, location: "", postMessage(...args) { messages.push(args); } };
+  const { connector, restore } = await loadConnector({
+    open(...args) {
+      calls.push(args);
+      return target;
+    },
+  });
+
+  try {
+    connector.reserve();
+    const packages = ["one", "two"].map((packageId) => ({ format: "office-dispatch-package", packageStatus: "Ready", packageId }));
+    await connector.dispatchMany(packages);
+    assert.equal(calls.length, 1);
+    assert.equal(target.location, "");
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0][0].type, "office-dispatch-batch-v1");
+    assert.deepEqual(messages[0][0].packages.map((item) => item.packageId), ["one", "two"]);
+    assert.equal(messages[0][1], "http://127.0.0.1:8090");
+  } finally {
+    restore();
+  }
+});

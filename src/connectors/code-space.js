@@ -1,4 +1,5 @@
 const CODE_SPACE_URL = "http://127.0.0.1:8090/";
+const CODE_SPACE_ORIGIN = new URL(CODE_SPACE_URL).origin;
 const CODE_SPACE_WINDOW_NAME = "code-space";
 let reservedWindow = null;
 
@@ -49,5 +50,20 @@ export const codeSpaceConnector = Object.freeze({
     target.location = url;
     target.focus?.();
     return { sent: true, packageId: packageExport.packageId };
+  },
+  async dispatchMany(packageExports, targetWindow = null) {
+    if (!Array.isArray(packageExports) || packageExports.length < 2 || packageExports.length > 10
+      || packageExports.some((item) => item?.format !== "office-dispatch-package" || item?.packageStatus !== "Ready")) {
+      throw new Error("Only 2 to 10 Ready Office dispatch packages can be sent as a batch.");
+    }
+    const target = isUsableWindow(targetWindow)
+      ? targetWindow
+      : isUsableWindow(reservedWindow)
+        ? reservedWindow
+        : null;
+    if (!target?.postMessage) throw new Error("Code Space could not receive the batch. Keep the existing Code Space tab open and try again.");
+    target.postMessage({ type: "office-dispatch-batch-v1", packages: packageExports }, CODE_SPACE_ORIGIN);
+    target.focus?.();
+    return { sent: true, packageIds: packageExports.map((item) => item.packageId) };
   },
 });

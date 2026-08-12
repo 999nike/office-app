@@ -1,10 +1,12 @@
 import { assignWorker, CAPABILITIES, createJob, defaultPermissionSet, PRIORITIES, STATUSES, updateJob } from "./domain/jobs.js";
+import { createJobBatch } from "./domain/job-batch.js";
 import { createWorker, updateWorker, WORKER_STATUSES } from "./domain/workers.js";
 import { cancelPackage, createDispatchExport, createDispatchPackage, dispatchExportFilename, markPackageReady } from "./domain/dispatch.js";
 import { createJobStore } from "./data/job-store.js";
 import { createWorkerStore } from "./data/worker-store.js";
 import { createDispatchStore } from "./data/dispatch-store.js";
 import { createCodeSpaceProjectCatalog } from "./connectors/code-space-projects.js";
+import { getExecutionWorker, listExecutionWorkers } from "./domain/execution-models.js";
 
 const root = document.querySelector("#app");
 const store = createJobStore();
@@ -12,6 +14,22 @@ const workerStore = createWorkerStore();
 const dispatchStore = createDispatchStore();
 const projectCatalog = createCodeSpaceProjectCatalog();
 let selectedStatus = "All";
+
+function blankJobDraft() {
+  return {
+    title: "",
+    description: "",
+    priority: "Medium",
+    project: "",
+    workerId: "",
+    ...Object.fromEntries(CAPABILITIES.map(({ key }) => [`capability.${key}`, "off"])),
+  };
+}
+
+function titleFromDraft(draft) {
+  const text = String(draft.description || "").trim().replace(/\s+/g, " ");
+  return String(draft.title || "").trim() || (text.split(/(?<=[.!?])\s/)[0] || text).slice(0, 100);
+}
 
 const escapeHtml = (value = "") => String(value)
   .replaceAll("&", "&amp;")
@@ -65,6 +83,7 @@ function shell(content, active = "dashboard") {
 function renderDashboard() {
   const jobs = store.list();
   const workers = workerStore.list();
+  const executionWorkers = listExecutionWorkers(workers);
   const packages = dispatchStore.list();
   const statusCounts = Object.fromEntries(STATUSES.map((status) => [status, jobs.filter((job) => job.status === status).length]));
   const availableWorkers = workers.filter((worker) => worker.status === "Available").length;
@@ -100,11 +119,11 @@ function renderDashboard() {
         </aside>
       </div>
     </section>
-    <dialog id="job-dialog">${jobForm(workers)}</dialog>
+    <dialog id="job-dialog">${jobForm(executionWorkers)}</dialog>
     <dialog id="worker-dialog"></dialog>
   `);
 
-  bindJobDialog(workers);
+  bindJobDialog(executionWorkers);
   document.querySelector("#new-worker").addEventListener("click", () => openWorkerDialog(null, renderDashboard));
 }
 
@@ -127,6 +146,7 @@ function attentionJob(job) {
 function renderJobs() {
   const jobs = store.list();
   const workers = workerStore.list();
+  const executionWorkers = listExecutionWorkers(workers);
   const visibleJobs = selectedStatus === "All" ? jobs : jobs.filter((job) => job.status === selectedStatus);
   const statusCounts = Object.fromEntries(STATUSES.map((status) => [status, jobs.filter((job) => job.status === status).length]));
 
@@ -159,10 +179,10 @@ function renderJobs() {
         </aside>
       </div>
     </section>
-    <dialog id="job-dialog">${jobForm(workers)}</dialog>
+    <dialog id="job-dialog">${jobForm(executionWorkers)}</dialog>
   `, "jobs");
 
-  bindJobDialog(workers);
+  bindJobDialog(executionWorkers);
   document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => {
     selectedStatus = button.dataset.filter;
     renderJobs();
@@ -178,14 +198,62 @@ function renderJobs() {
   }));
 }
 
-function bindJobDialog(workers) {
+function bindJobDialog(executionWorkers) {
   const dialog = document.querySelector("#job-dialog");
+  const form = dialog.querySelector("#create-job-form");
+  const state = { count: 1, active: 0, drafts: [blankJobDraft()] };
+  form.multiJobState = state;
+
+  const capture = () => {
+    state.drafts[state.active] = { ...state.drafts[state.active], ...Object.fromEntries(new FormData(form)) };
+  };
+  const apply = () => {
+    const draft = state.drafts[state.active];
+    for (const [key, value] of Object.entries(draft)) {
+      const field = form.elements.namedItem(key);
+      if (field) field.value = value;
+    }
+  };
+  const renderTabs = () => {
+    const controls = dialog.querySelector("#multi-job-controls");
+    const tabs = dialog.querySelector("#multi-job-tabs");
+    const count = dialog.querySelector("#multi-job-count");
+    const toggle = dialog.querySelector("#multi-jobs-toggle");
+    const multi = state.count > 1;
+    controls.hidden = !multi;
+    tabs.hidden = !multi;
+    count.value = String(state.count);
+    toggle.textContent = multi ? "Single job" : "Multi jobs";
+    tabs.innerHTML = Array.from({ length: state.count }, (_, index) => `<button type="button" class="multi-job-tab ${index === state.active ? "active" : ""}" data-multi-job-tab="${index}">Job ${index + 1}</button>`).join("");
+    tabs.querySelectorAll("[data-multi-job-tab]").forEach((button) => button.addEventListener("click", () => {
+      capture();
+      state.active = Number(button.dataset.multiJobTab);
+      apply();
+      renderTabs();
+    }));
+  };
+  const setCount = (nextCount) => {
+    capture();
+    state.count = nextCount;
+    state.drafts = state.drafts.slice(0, nextCount);
+    while (state.drafts.length < nextCount) state.drafts.push(blankJobDraft());
+    state.active = Math.min(state.active, nextCount - 1);
+    apply();
+    renderTabs();
+  };
+
   document.querySelector("#new-job").addEventListener("click", () => dialog.showModal());
   dialog.querySelector("#close-dialog").addEventListener("click", () => dialog.close());
   dialog.querySelector("#cancel-dialog").addEventListener("click", () => dialog.close());
-  dialog.querySelector("#create-job-form").addEventListener("submit", handleCreate);
-  dialog.querySelector("#job-worker").addEventListener("change", (event) => copySelectedWorkerDefaults(event.currentTarget, workers));
+  form.addEventListener("submit", handleCreate);
+  dialog.querySelector("#job-worker").addEventListener("change", (event) => {
+    copySelectedWorkerDefaults(event.currentTarget, executionWorkers);
+    capture();
+  });
+  dialog.querySelector("#multi-jobs-toggle").addEventListener("click", () => setCount(state.count === 1 ? 2 : 1));
+  dialog.querySelector("#multi-job-count").addEventListener("change", (event) => setCount(Number(event.currentTarget.value)));
   dialog.querySelector("#refresh-projects").addEventListener("click", () => refreshProjectSelector(dialog));
+  renderTabs();
 }
 
 function jobCard(job) {
@@ -206,16 +274,18 @@ function emptyState(filtered) {
   return `<div class="empty-state"><span class="empty-icon">${filtered ? "⌕" : "＋"}</span><h3>${filtered ? "No jobs in this stage" : "Your queue is clear"}</h3><p>${filtered ? "Choose another status or move a job here." : "Create your first job to start planning work across your projects."}</p>${filtered ? "" : '<button class="button secondary" onclick="document.querySelector(\'#job-dialog\').showModal()">Create first job</button>'}</div>`;
 }
 
-function jobForm(workers) {
+function jobForm(executionWorkers) {
   return `<form id="create-job-form">
     <div class="dialog-head"><div><p class="eyebrow">NEW WORK ITEM</p><h2>Create job</h2></div><button id="close-dialog" type="button" class="icon-button" aria-label="Close">×</button></div>
+    <div class="multi-job-bar"><button type="button" class="button secondary" id="multi-jobs-toggle">Multi jobs</button><div id="multi-job-controls" hidden><label>Jobs to prepare<select id="multi-job-count">${Array.from({ length: 9 }, (_, index) => `<option value="${index + 2}">${index + 2}</option>`).join("")}</select></label></div></div>
+    <div class="multi-job-tabs" id="multi-job-tabs" hidden aria-label="Multi-job pages"></div>
     <label>Title<input name="title" required maxlength="100" placeholder="What needs to be done?" autofocus></label>
     <label>Description<textarea name="description" required rows="5" placeholder="Add context, requirements, and a clear outcome."></textarea></label>
     <div class="form-grid">
       <label>Priority<select name="priority">${PRIORITIES.map((value) => `<option ${value === "Medium" ? "selected" : ""}>${value}</option>`).join("")}</select></label>
       <label>Target project<select id="job-project" name="project" ${projectCatalog.available && projectCatalog.projects.length ? "" : "disabled"}>${projectCatalog.available && projectCatalog.projects.length ? projectCatalog.projects.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") : '<option>Code Space projects unavailable</option>'}</select><span class="project-catalog-state" id="project-catalog-state">${escapeHtml(projectCatalog.message)}</span><button class="button secondary project-refresh" id="refresh-projects" type="button">Refresh projects</button></label>
     </div>
-    <label>Assigned worker / agent<select id="job-worker" name="workerId"><option value="">Unassigned</option>${workers.map((worker) => `<option value="${escapeHtml(worker.id)}">${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`).join("")}</select></label>
+    <label>Assigned worker / agent<select id="job-worker" name="workerId"><option value="">Unassigned</option>${executionWorkers.map((worker) => `<option value="${escapeHtml(worker.id)}">${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`).join("")}</select></label>
     <fieldset class="permission-editor">
       <legend>Worker permissions</legend>
       <p>All capabilities are off unless explicitly allowed.</p>
@@ -228,14 +298,32 @@ function jobForm(workers) {
 
 function handleCreate(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const form = event.currentTarget;
+  const state = form.multiJobState;
+  state.drafts[state.active] = { ...state.drafts[state.active], ...Object.fromEntries(new FormData(form)) };
   try {
-    const worker = workerStore.get(form.get("workerId"));
-    const input = { ...Object.fromEntries(form), worker: worker?.name || "Unassigned", ...permissionValues(form) };
-    const job = createJob(input, new Date(), crypto.randomUUID(), projectCatalog.projects);
-    store.add(job);
-    document.dispatchEvent(new CustomEvent("office:job-created", { detail: { jobId: job.id } }));
-    location.hash = jobDetailHref(job.id);
+    const inputs = state.drafts.map((draft) => {
+      const worker = getExecutionWorker(draft.workerId, workerStore.list());
+      const permissionForm = new FormData();
+      for (const { key } of CAPABILITIES) permissionForm.set(`capability.${key}`, draft[`capability.${key}`] || "off");
+      return {
+        ...draft,
+        title: titleFromDraft(draft),
+        worker: worker?.name || "Unassigned",
+        ...permissionValues(permissionForm),
+      };
+    });
+    if (state.count > 1) {
+      const missingWorker = inputs.findIndex((input) => !input.workerId);
+      if (missingWorker !== -1) throw new Error(`Choose an agent / model for Job ${missingWorker + 1}.`);
+    }
+    const jobs = state.count === 1
+      ? [createJob(inputs[0], new Date(), crypto.randomUUID(), projectCatalog.projects)]
+      : createJobBatch(inputs, { projects: projectCatalog.projects });
+    [...jobs].reverse().forEach((job) => store.add(job));
+    if (jobs.length === 1) document.dispatchEvent(new CustomEvent("office:job-created", { detail: { jobId: jobs[0].id } }));
+    else document.dispatchEvent(new CustomEvent("office:jobs-created", { detail: { jobIds: jobs.map((job) => job.id) } }));
+    location.hash = jobDetailHref(jobs[0].id);
   } catch (error) {
     document.querySelector("#form-error").textContent = error.message;
   }
@@ -263,6 +351,7 @@ async function refreshProjectSelector(dialog) {
 function renderDetail(id) {
   const job = store.get(id);
   const workers = workerStore.list();
+  const executionWorkers = listExecutionWorkers(workers);
   if (!job) {
     root.innerHTML = shell(`<section class="not-found"><p class="eyebrow">404</p><h1>Job not found</h1><a class="button secondary" href="#/jobs">Back to jobs</a></section>`, "jobs");
     return;
@@ -289,8 +378,8 @@ function renderDetail(id) {
         <aside class="panel facts-card">
           <div class="panel-head"><div><p class="eyebrow">DETAILS</p><h2>Job information</h2></div></div>
           <form id="assignment-form" class="assignment-form">
-            <label>Assigned worker / agent<select id="detail-worker" name="workerId"><option value="">Unassigned</option>${workers.map((worker) => `<option value="${escapeHtml(worker.id)}" ${job.workerId === worker.id ? "selected" : ""}>${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`).join("")}</select></label>
-            ${!workers.some((worker) => worker.id === job.workerId) && job.worker !== "Unassigned" ? `<p class="legacy-worker">Stored assignment: ${escapeHtml(job.worker)}</p>` : ""}
+            <label>Assigned worker / agent<select id="detail-worker" name="workerId"><option value="">Unassigned</option>${executionWorkers.map((worker) => `<option value="${escapeHtml(worker.id)}" ${job.workerId === worker.id ? "selected" : ""}>${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`).join("")}</select></label>
+            ${!executionWorkers.some((worker) => worker.id === job.workerId) && job.worker !== "Unassigned" ? `<p class="legacy-worker">Stored assignment: ${escapeHtml(job.worker)}</p>` : ""}
             <button class="button secondary" type="submit">Apply assignment</button>
           </form>
           <dl><div><dt>Project</dt><dd>${escapeHtml(job.project)}</dd></div><div><dt>Current worker</dt><dd>${escapeHtml(job.worker)}</dd></div><div><dt>Priority</dt><dd>${escapeHtml(job.priority)}</dd></div><div><dt>Created</dt><dd>${formatDate(job.createdAt)}</dd></div><div><dt>Last updated</dt><dd>${formatDate(job.updatedAt)}</dd></div></dl>
@@ -316,7 +405,7 @@ function renderDetail(id) {
   });
   document.querySelector("#assignment-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    const worker = workerStore.get(new FormData(event.currentTarget).get("workerId"));
+    const worker = getExecutionWorker(new FormData(event.currentTarget).get("workerId"), workerStore.list());
     store.replace(assignWorker(store.get(id), worker));
     renderDetail(id);
   });
@@ -446,7 +535,7 @@ function renderDispatch(selectedId = null) {
     event.preventDefault();
     const job = store.get(new FormData(event.currentTarget).get("jobId"));
     if (!job) return;
-    const packageSnapshot = createDispatchPackage(job, workerStore.get(job.workerId));
+    const packageSnapshot = createDispatchPackage(job, getExecutionWorker(job.workerId, workerStore.list()));
     dispatchStore.add(packageSnapshot);
     location.hash = `#/dispatch/${packageSnapshot.id}`;
   });
@@ -502,7 +591,7 @@ function bindDispatchActions(item) {
   document.querySelector("#ready-package").addEventListener("click", () => {
     try {
       const job = store.get(item.jobId);
-      const worker = workerStore.get(item.workerId);
+      const worker = getExecutionWorker(item.workerId, workerStore.list());
       dispatchStore.replace(markPackageReady(item, job, worker));
       renderDispatch(item.id);
     } catch (error) {
@@ -519,7 +608,7 @@ function bindDispatchActions(item) {
       document.querySelector("#dispatch-error").textContent = "The source job is missing; a new snapshot cannot be created.";
       return;
     }
-    const next = createDispatchPackage(job, workerStore.get(job.workerId));
+    const next = createDispatchPackage(job, getExecutionWorker(job.workerId, workerStore.list()));
     dispatchStore.add(next);
     location.hash = `#/dispatch/${next.id}`;
   });

@@ -203,6 +203,26 @@ User
 
 **Office decides the job. Code Space enforces the job. The worker only receives explicitly granted capabilities.**
 
+## Built-in Codex execution model — 12 Aug 2026 — IMPLEMENTED, LIVE PROOF PENDING
+
+Office now exposes `Codex` as a first-class Agent / model choice without requiring a local Worker Profile. It is an immutable built-in execution identity, separate from user-created local profiles:
+
+- built-in identity: `builtin:codex`
+- frozen dispatch display identity: `Codex`
+- frozen dispatch role: `Built-in coding model`
+- default permissions remain off; the user must explicitly select every capability for each job
+- local Worker Profiles remain editable local identities and continue to appear after the built-in choice
+
+The existing `office-dispatch-package` v1 worker object already has an `id`, so no package-format change was needed. New Codex packages freeze `worker.id = "builtin:codex"` and `worker.name = "Codex"`. Code Space now prefers this stable ID for routing while retaining the legacy display-name match for already-created Codex packages.
+
+Phase A terminal policy is now aligned with the Office boundary: the fixed Code Space `codex exec` launcher is server-mediated and read-only sandbox-scoped, but it is not a general terminal capability. A Codex package requires `Read files` and `Propose result / handoff`; `Use terminal` must remain not granted and an explicit terminal grant is rejected. `Run tests` remains separately optional and is represented in the frozen prompt. Office does not grant capabilities automatically.
+
+The initial live proof correctly exposed that a terminal-denied Codex worker had no file input. That boundary is now implemented: after Code Space validates `readFiles`, the exact `agent-sandbox-test` root, and direct regular-file names, it reads bounded supported text/code files and inserts a capped, explicitly delimited untrusted-data snapshot into the frozen Codex prompt. No client endpoint, arbitrary path, recursive traversal, terminal, test, or mutation authority is introduced. The structured Codex handoff persists the resulting file manifest.
+
+## Phase A real Codex read-only proof — VERIFIED 12 Aug 2026
+
+One Office-built `builtin:codex` package was accepted by Code Space with `Read files` and `Propose result / handoff` allowed; Modify files, Run tests, and Use terminal were not granted. Code Space supplied the bounded `agent-sandbox-test` file snapshot, Codex inspected `agent-write-test.txt`, `math.js`, and `math.test.js`, then completed in `read-only` mode with exit status 0. No files were changed, no tests were run, and no terminal commands were used. The returned structured result described each file correctly.
+
 ## Streamlined job flow recovery — 11 Aug 2026 — VERIFIED
 
 The shortened Office → Code Space path is now live-verified on the HP.

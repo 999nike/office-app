@@ -14,18 +14,19 @@ Finish the real Office -> Code Space -> Codex path first, then add multi-job ent
 - Do not touch Memory Space.
 - Keep custom/local Worker Profiles working.
 
-## Phase A — Real Codex execution
+## Phase A — Real Codex execution — VERIFIED
 Goal: make one real Office -> Code Space -> Codex read-only sandbox job succeed cleanly.
 
 Tasks:
-1. Preserve `builtin:codex` routing and current queue work.
-2. Review the current `useTerminal` requirement for the mediated Codex runner.
-3. Codex selection must not silently imply unrestricted/general terminal authority.
-4. Do not weaken the Office permission model.
-5. Keep the mediated runner non-interactive, sandbox-scoped, and limited to `agent-sandbox-test`.
-6. Use focused checks while coding and one batched relevant suite at the end.
-7. Only one live read-only Office -> Codex proof is required when implementation is ready.
-8. If that live proof fails, fix the actual integration fault and repeat only that proof.
+1. Completed: preserve `builtin:codex` routing and current queue work.
+2. Completed: remove the incorrect `useTerminal` prerequisite from the mediated Codex runner.
+3. Completed: a Codex Phase A package must have `useTerminal` not granted; a terminal grant is rejected and no general terminal endpoint exists.
+4. Completed: Office permissions remain frozen and unchanged.
+5. Completed: the fixed, non-interactive `codex exec` launcher is read-only sandbox-scoped and limited to `agent-sandbox-test`.
+6. Completed: focused and batched relevant suites pass.
+7. Completed once: live read-only Office -> Code Space -> Codex proof ran with `builtin:codex`, `read-only`, exit 0, no writes, no tests, and no terminal grant.
+8. Completed: Code Space now supplies a bounded direct-file snapshot only after validating the frozen `readFiles` grant and the exact `agent-sandbox-test` root. It rejects traversal/out-of-root names and does not expose a terminal or file-reading endpoint.
+9. Verified 12 Aug 2026: one live read-only Office -> Code Space -> Codex proof inspected the mediated `agent-sandbox-test` snapshot with `builtin:codex`, exit 0, no file changes, no tests, and no terminal grant.
 
 ## Phase B — Multi-job Create Job flow
 Build this only after Phase A is ready/passing.

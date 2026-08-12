@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { defaultPermissionSet } from "../src/domain/jobs.js";
 import { cancelPackage, createDispatchExport, createDispatchPackage, dispatchExportFilename, markPackageReady, normalizeDispatchPackage } from "../src/domain/dispatch.js";
 import { createDispatchStore, DISPATCH_STORAGE_KEY } from "../src/data/dispatch-store.js";
+import { getExecutionWorker } from "../src/domain/execution-models.js";
 
 const now = new Date("2026-08-11T14:00:00.000Z");
 const permissions = { ...defaultPermissionSet(), readFiles: true, proposeResult: true };
@@ -28,6 +29,14 @@ test("creates a safe Draft dispatch snapshot", () => {
   assert.equal(packageSnapshot.sandboxTarget, "sandbox-target");
   assert.equal(packageSnapshot.hasPermissionSnapshot, true);
   assert.equal(packageSnapshot.resultHandoffCapabilityState, "Allowed");
+});
+
+test("freezes the built-in Codex identity in an unchanged v1 dispatch package", () => {
+  const codex = getExecutionWorker("builtin:codex");
+  const packageSnapshot = createDispatchPackage({ ...job, workerId: codex.id, worker: codex.name }, codex, now, "package-codex");
+  const exported = createDispatchExport(markPackageReady(packageSnapshot, { ...job, workerId: codex.id, worker: codex.name }, codex));
+  assert.deepEqual(exported.worker, { id: "builtin:codex", name: "Codex", role: "Built-in coding model" });
+  assert.equal(exported.version, 1);
 });
 
 test("copies permissions and preserves explicit denials", () => {
