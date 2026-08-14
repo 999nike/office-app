@@ -110,7 +110,6 @@ function renderDashboard() {
     <header class="topbar control-topbar">
       <div><p class="eyebrow">LOCAL CONTROL CENTER</p><h1>Dashboard</h1><p class="topbar-context">Your current Office state, stored only in this browser.</p></div>
       <div class="topbar-actions"><button class="button secondary" id="new-worker">＋ New worker</button><button class="button primary" id="new-job">＋ New job</button></div>
-      <div><button class="button secondary" id="run-memory-collector">Run Memory Collector</button><pre id="memory-collector-result" hidden></pre></div>
     </header>
     <section class="dashboard overview-page">
       <div class="metric-row control-metrics">
@@ -145,22 +144,6 @@ function renderDashboard() {
 
   bindJobDialog(executionWorkers);
   document.querySelector("#new-worker").addEventListener("click", () => openWorkerDialog(null, renderDashboard));
-  document.querySelector("#run-memory-collector").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const output = document.querySelector("#memory-collector-result");
-    button.disabled = true;
-    output.hidden = false;
-    output.textContent = "Running…";
-    try {
-      const result = await OfficeMemoryJobCollector.collect();
-      console.log("Memory collector result:", result);
-      const currentOutput = document.querySelector("#memory-collector-result");
-      if (currentOutput) currentOutput.textContent = JSON.stringify(result, null, 2);
-    } finally {
-      const currentButton = document.querySelector("#run-memory-collector");
-      if (currentButton) currentButton.disabled = false;
-    }
-  });
 }
 
 function metricCard(icon, label, value, note, tone) {
@@ -772,5 +755,3 @@ projectCatalog.refresh().then(() => {
   collectMemoryJobs();
 });
 setInterval(collectMemoryJobs, COLLECTION_INTERVAL_MS);
-
-globalThis.OfficeMemoryJobCollector = Object.freeze({ collect: collectMemoryJobs });
