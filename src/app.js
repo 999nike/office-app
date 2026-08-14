@@ -7,13 +7,32 @@ import { createWorkerStore } from "./data/worker-store.js";
 import { createDispatchStore } from "./data/dispatch-store.js";
 import { createCodeSpaceProjectCatalog } from "./connectors/code-space-projects.js";
 import { getExecutionWorker, listExecutionWorkers } from "./domain/execution-models.js";
+import { COLLECTION_INTERVAL_MS, createMemoryJobCollector } from "./connectors/memory-space.js";
 
 const root = document.querySelector("#app");
 const store = createJobStore();
 const workerStore = createWorkerStore();
 const dispatchStore = createDispatchStore();
 const projectCatalog = createCodeSpaceProjectCatalog();
+const memoryJobCollector = createMemoryJobCollector({ store, projects: () => projectCatalog.projects });
 let selectedStatus = "All";
+let memoryCollectionRunning = false;
+
+async function collectMemoryJobs() {
+  if (memoryCollectionRunning || !projectCatalog.available) return null;
+  memoryCollectionRunning = true;
+  try {
+    const result = await memoryJobCollector.collect();
+    if (result.imported.length) route();
+    if (result.failed.length) console.warn("Memory Space job collection needs attention:", result.failed);
+    return result;
+  } catch (error) {
+    console.warn("Memory Space job collector is waiting:", error?.message || error);
+    return null;
+  } finally {
+    memoryCollectionRunning = false;
+  }
+}
 
 function blankJobDraft() {
   return {
@@ -91,6 +110,7 @@ function renderDashboard() {
     <header class="topbar control-topbar">
       <div><p class="eyebrow">LOCAL CONTROL CENTER</p><h1>Dashboard</h1><p class="topbar-context">Your current Office state, stored only in this browser.</p></div>
       <div class="topbar-actions"><button class="button secondary" id="new-worker">＋ New worker</button><button class="button primary" id="new-job">＋ New job</button></div>
+      <div><button class="button secondary" id="run-memory-collector">Run Memory Collector</button><pre id="memory-collector-result" hidden></pre></div>
     </header>
     <section class="dashboard overview-page">
       <div class="metric-row control-metrics">
@@ -125,6 +145,22 @@ function renderDashboard() {
 
   bindJobDialog(executionWorkers);
   document.querySelector("#new-worker").addEventListener("click", () => openWorkerDialog(null, renderDashboard));
+  document.querySelector("#run-memory-collector").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const output = document.querySelector("#memory-collector-result");
+    button.disabled = true;
+    output.hidden = false;
+    output.textContent = "Running…";
+    try {
+      const result = await OfficeMemoryJobCollector.collect();
+      console.log("Memory collector result:", result);
+      const currentOutput = document.querySelector("#memory-collector-result");
+      if (currentOutput) currentOutput.textContent = JSON.stringify(result, null, 2);
+    } finally {
+      const currentButton = document.querySelector("#run-memory-collector");
+      if (currentButton) currentButton.disabled = false;
+    }
+  });
 }
 
 function metricCard(icon, label, value, note, tone) {
@@ -348,6 +384,37 @@ async function refreshProjectSelector(dialog) {
   button.textContent = "Refresh projects";
 }
 
+function canSendJobToCodeSpace(job) {
+  const worker = getExecutionWorker(job.workerId, workerStore.list());
+  if (!projectCatalog.available || !projectCatalog.projects.includes(job.project)) return false;
+  if (!worker || worker.status === "Disabled") return false;
+
+  const permissions = job.permissions || {};
+  const denials = job.deniedPermissions || {};
+  if (worker.id === "builtin:codex") {
+    return permissions.readFiles
+      && permissions.modifyFiles
+      && permissions.runTests
+      && permissions.useTerminal
+      && permissions.proposeResult;
+  }
+
+  if (permissions.useTerminal) return false;
+
+  if (permissions.modifyFiles) {
+    return permissions.proposeResult;
+  }
+
+  return permissions.readFiles
+    && permissions.runTests
+    && permissions.proposeResult
+    && denials.modifyFiles;
+}
+
+function hasDispatchForJob(jobId) {
+  return dispatchStore.list().some((item) => item.jobId === jobId && item.sentAt);
+}
+
 function renderDetail(id) {
   const job = store.get(id);
   const workers = workerStore.list();
@@ -356,6 +423,7 @@ function renderDetail(id) {
     root.innerHTML = shell(`<section class="not-found"><p class="eyebrow">404</p><h1>Job not found</h1><a class="button secondary" href="#/jobs">Back to jobs</a></section>`, "jobs");
     return;
   }
+  const canSend = canSendJobToCodeSpace(job) && !hasDispatchForJob(job.id);
   root.innerHTML = shell(`
     <header class="topbar detail-topbar"><a class="back-link" href="#/jobs">← Back to jobs</a><div class="detail-top-status"><span class="priority ${slug(job.priority)}">${job.priority}</span><span class="status ${slug(job.status)}">${job.status}</span></div></header>
     <section class="detail-page">
@@ -382,7 +450,9 @@ function renderDetail(id) {
             ${!executionWorkers.some((worker) => worker.id === job.workerId) && job.worker !== "Unassigned" ? `<p class="legacy-worker">Stored assignment: ${escapeHtml(job.worker)}</p>` : ""}
             <button class="button secondary" type="submit">Apply assignment</button>
           </form>
-          <dl><div><dt>Project</dt><dd>${escapeHtml(job.project)}</dd></div><div><dt>Current worker</dt><dd>${escapeHtml(job.worker)}</dd></div><div><dt>Priority</dt><dd>${escapeHtml(job.priority)}</dd></div><div><dt>Created</dt><dd>${formatDate(job.createdAt)}</dd></div><div><dt>Last updated</dt><dd>${formatDate(job.updatedAt)}</dd></div></dl>
+          <button class="button primary" id="send-to-code-space" type="button" ${canSend ? "" : "disabled"}>Send to Code Space</button>
+          <p class="form-error" id="send-error" role="alert"></p>
+          <dl><div><dt>Project</dt><dd>${escapeHtml(job.project)}</dd></div><div><dt>Current worker</dt><dd>${escapeHtml(job.worker)}</dd></div><div><dt>Priority</dt><dd>${escapeHtml(job.priority)}</dd></div>${job.source ? `<div><dt>Source</dt><dd>${escapeHtml(job.source)} · ${escapeHtml(job.sourceJobId)}</dd></div>` : ""}<div><dt>Created</dt><dd>${formatDate(job.createdAt)}</dd></div><div><dt>Last updated</dt><dd>${formatDate(job.updatedAt)}</dd></div></dl>
           <div class="local-badge"><span class="connection-dot"></span><div><strong>Stored locally</strong><small>This job remains in this browser.</small></div></div>
         </aside>
       </div>
@@ -402,12 +472,25 @@ function renderDetail(id) {
     const current = store.get(id);
     store.replace(updateJob(current, permissionValues(new FormData(event.currentTarget))));
     document.querySelector("#permission-message").textContent = "Permissions saved locally";
+    document.querySelector("#send-to-code-space").disabled =
+      !canSendJobToCodeSpace(store.get(id)) || hasDispatchForJob(id);
   });
   document.querySelector("#assignment-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const worker = getExecutionWorker(new FormData(event.currentTarget).get("workerId"), workerStore.list());
     store.replace(assignWorker(store.get(id), worker));
     renderDetail(id);
+  });
+  document.querySelector("#send-to-code-space").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await globalThis.OfficeDispatch.sendJob(id);
+      renderDetail(id);
+    } catch (error) {
+      document.querySelector("#send-error").textContent = error?.message || "Could not send job to Code Space.";
+      button.disabled = canSendJobToCodeSpace(store.get(id)) && !hasDispatchForJob(id);
+    }
   });
 }
 
@@ -686,4 +769,8 @@ window.addEventListener("hashchange", route);
 route();
 projectCatalog.refresh().then(() => {
   if (!document.querySelector("#job-dialog")?.open) route();
+  collectMemoryJobs();
 });
+setInterval(collectMemoryJobs, COLLECTION_INTERVAL_MS);
+
+globalThis.OfficeMemoryJobCollector = Object.freeze({ collect: collectMemoryJobs });

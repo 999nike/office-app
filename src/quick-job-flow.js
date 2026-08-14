@@ -8,7 +8,7 @@ import { getExecutionWorker } from "./domain/execution-models.js";
 const jobs = createJobStore();
 const workers = createWorkerStore();
 const dispatches = createDispatchStore();
-const processedJobs = new Set(dispatches.list().map((item) => item.jobId));
+const processedJobs = new Set(dispatches.list().filter((item) => item.sentAt).map((item) => item.jobId));
 
 function titleFromDescription(value) {
   const text = String(value || "").trim().replace(/\s+/g, " ");
@@ -61,7 +61,7 @@ function tuneJobForm() {
   if (submit) submit.textContent = "Create & send";
 }
 
-async function createAndSendDispatch(jobId) {
+async function sendJobToCodeSpace(jobId) {
   const job = jobs.get(jobId);
   if (!job || processedJobs.has(job.id)) return;
 
@@ -71,14 +71,16 @@ async function createAndSendDispatch(jobId) {
   const draft = createDispatchPackage(job, worker);
   const ready = markPackageReady(draft, job, worker);
   dispatches.add(ready);
-  processedJobs.add(job.id);
 
   const exported = createDispatchExport(ready);
   await codeSpaceConnector.dispatch(exported);
+  dispatches.replace({ ...ready, sentAt: new Date().toISOString() });
+  processedJobs.add(job.id);
 }
 
 async function createAndSendDispatchBatch(jobIds) {
   const exports = [];
+  const readyPackages = [];
   for (const jobId of jobIds) {
     const job = jobs.get(jobId);
     if (!job || processedJobs.has(job.id)) throw new Error("One of the new Office jobs could not be prepared for dispatch.");
@@ -86,10 +88,14 @@ async function createAndSendDispatchBatch(jobIds) {
     if (!worker) throw new Error("Choose an agent / model before creating the jobs.");
     const ready = markPackageReady(createDispatchPackage(job, worker), job, worker);
     dispatches.add(ready);
-    processedJobs.add(job.id);
+    readyPackages.push(ready);
     exports.push(createDispatchExport(ready));
   }
   await codeSpaceConnector.dispatchMany(exports);
+  readyPackages.forEach((ready) => {
+    dispatches.replace({ ...ready, sentAt: new Date().toISOString() });
+    processedJobs.add(ready.jobId);
+  });
 }
 
 document.addEventListener("submit", (event) => {
@@ -116,7 +122,7 @@ document.addEventListener("submit", (event) => {
   const sendCreatedJob = (createdEvent) => {
     document.removeEventListener("office:job-created", sendCreatedJob);
     document.removeEventListener("office:jobs-created", sendCreatedJobs);
-    createAndSendDispatch(createdEvent.detail?.jobId).catch((error) => {
+    sendJobToCodeSpace(createdEvent.detail?.jobId).catch((error) => {
       console.error("Could not send Office job to Code Space:", error);
     });
   };
@@ -134,3 +140,7 @@ document.addEventListener("submit", (event) => {
 const observer = new MutationObserver(tuneJobForm);
 observer.observe(document.documentElement, { childList: true, subtree: true });
 tuneJobForm();
+
+globalThis.OfficeDispatch = Object.freeze({
+  sendJob: sendJobToCodeSpace,
+});
