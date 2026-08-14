@@ -1,13 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { defaultPermissionSet } from "../src/domain/jobs.js";
 import { cancelPackage, createDispatchExport, createDispatchPackage, dispatchExportFilename, markPackageReady, normalizeDispatchPackage } from "../src/domain/dispatch.js";
 import { createDispatchStore, DISPATCH_STORAGE_KEY } from "../src/data/dispatch-store.js";
 import { getExecutionWorker } from "../src/domain/execution-models.js";
 
 const now = new Date("2026-08-11T14:00:00.000Z");
-const permissions = { ...defaultPermissionSet(), readFiles: true, proposeResult: true };
-const deniedPermissions = { ...defaultPermissionSet(), useTerminal: true };
 const job = {
   id: "job-sandbox",
   workerId: "worker-sandbox",
@@ -17,8 +14,6 @@ const job = {
   priority: "Medium",
   status: "Ready",
   project: "sandbox-target",
-  permissions,
-  deniedPermissions,
 };
 const worker = { id: "worker-sandbox", name: "Sandbox Helper", role: "Reviewer", status: "Available" };
 
@@ -27,8 +22,8 @@ test("creates a safe Draft dispatch snapshot", () => {
   assert.equal(packageSnapshot.packageStatus, "Draft");
   assert.equal(packageSnapshot.workerId, worker.id);
   assert.equal(packageSnapshot.sandboxTarget, "sandbox-target");
-  assert.equal(packageSnapshot.hasPermissionSnapshot, true);
-  assert.equal(packageSnapshot.resultHandoffCapabilityState, "Allowed");
+  assert.equal(Object.hasOwn(packageSnapshot, "effectivePermissions"), false);
+  assert.equal(Object.hasOwn(packageSnapshot, "explicitDenials"), false);
 });
 
 test("freezes the built-in Codex identity in an unchanged v1 dispatch package", () => {
@@ -39,23 +34,10 @@ test("freezes the built-in Codex identity in an unchanged v1 dispatch package", 
   assert.equal(exported.version, 1);
 });
 
-test("copies permissions and preserves explicit denials", () => {
-  const packageSnapshot = createDispatchPackage(job, worker, now, "package-1");
-  assert.equal(packageSnapshot.effectivePermissions.readFiles, true);
-  assert.equal(packageSnapshot.effectivePermissions.useTerminal, false);
-  assert.equal(packageSnapshot.explicitDenials.useTerminal, true);
-});
-
 test("snapshot remains independent after job and worker edits", () => {
   const packageSnapshot = createDispatchPackage(job, worker, now, "package-1");
-  job.permissions.readFiles = false;
-  job.deniedPermissions.modifyFiles = true;
   worker.name = "Changed sandbox label";
-  assert.equal(packageSnapshot.effectivePermissions.readFiles, true);
-  assert.equal(packageSnapshot.explicitDenials.modifyFiles, false);
   assert.equal(packageSnapshot.workerName, "Sandbox Helper");
-  job.permissions.readFiles = true;
-  job.deniedPermissions.modifyFiles = false;
   worker.name = "Sandbox Helper";
 });
 
@@ -75,8 +57,7 @@ test("exports only a Ready package using its frozen snapshot", () => {
   assert.equal(exported.version, 1);
   assert.equal(exported.packageId, "package:1");
   assert.equal(exported.worker.name, "Sandbox Helper");
-  assert.deepEqual(exported.capabilities.allowed.map((item) => item.key), ["readFiles", "proposeResult"]);
-  assert.deepEqual(exported.capabilities.explicitlyDenied.map((item) => item.key), ["useTerminal"]);
+  assert.equal(Object.hasOwn(exported, "capabilities"), false);
   assert.equal(dispatchExportFilename(ready), "office-dispatch-package-1.json");
 });
 
@@ -102,29 +83,29 @@ test("rejects Ready for a disabled worker", () => {
   assert.throws(() => markPackageReady(packageSnapshot, job, { ...worker, status: "Disabled" }), /disabled/i);
 });
 
-test("rejects Ready when an old package has no real permission snapshot", () => {
+test("accepts a package without Office permission state", () => {
   const oldPackage = normalizeDispatchPackage({
     id: "old-package",
     jobId: job.id,
     workerId: worker.id,
     packageStatus: "Draft",
   });
-  assert.throws(() => markPackageReady(oldPackage, job, worker), /permission snapshot/i);
+  assert.equal(markPackageReady(oldPackage, job, worker).packageStatus, "Ready");
 });
 
 test("cancels without changing snapshot fields", () => {
   const packageSnapshot = createDispatchPackage(job, worker, now, "package-1");
   const cancelled = cancelPackage(packageSnapshot, new Date("2026-08-11T14:20:00.000Z"));
   assert.equal(cancelled.packageStatus, "Cancelled");
-  assert.deepEqual(cancelled.effectivePermissions, packageSnapshot.effectivePermissions);
+  assert.equal(Object.hasOwn(cancelled, "effectivePermissions"), false);
   assert.equal(cancelled.jobTitle, packageSnapshot.jobTitle);
 });
 
 test("normalizes old stored state to safe Draft defaults", () => {
   const normalized = normalizeDispatchPackage({ id: "old-package", jobId: "old-job" });
   assert.equal(normalized.packageStatus, "Draft");
-  assert.equal(normalized.hasPermissionSnapshot, false);
-  assert.deepEqual(normalized.effectivePermissions, defaultPermissionSet());
+  assert.equal(Object.hasOwn(normalized, "hasPermissionSnapshot"), false);
+  assert.equal(Object.hasOwn(normalized, "effectivePermissions"), false);
 });
 
 test("persists dispatch packages in a separate local store", () => {

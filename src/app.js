@@ -41,7 +41,6 @@ function blankJobDraft() {
     priority: "Medium",
     project: "",
     workerId: "",
-    ...Object.fromEntries(CAPABILITIES.map(({ key }) => [`capability.${key}`, "off"])),
   };
 }
 
@@ -109,6 +108,7 @@ function renderDashboard() {
   root.innerHTML = shell(`
     <header class="topbar control-topbar">
       <div><p class="eyebrow">LOCAL CONTROL CENTER</p><h1>Dashboard</h1><p class="topbar-context">Your current Office state, stored only in this browser.</p></div>
+      <div class="topbar-actions"><div class="memory-collector-control"><button class="button secondary" id="run-memory-collector" type="button">Run Memory Collector</button><p id="memory-collector-result" class="form-hint" role="status"></p></div></div>
       <div class="topbar-actions"><button class="button secondary" id="new-worker">＋ New worker</button><button class="button primary" id="new-job">＋ New job</button></div>
     </header>
     <section class="dashboard overview-page">
@@ -144,6 +144,26 @@ function renderDashboard() {
 
   bindJobDialog(executionWorkers);
   document.querySelector("#new-worker").addEventListener("click", () => openWorkerDialog(null, renderDashboard));
+  document.querySelector("#run-memory-collector").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    const showResult = (message) => {
+      const result = document.querySelector("#memory-collector-result");
+      if (result) result.textContent = message;
+    };
+    showResult("Collecting Memory jobs…");
+    try {
+      const result = await collectMemoryJobs();
+      if (!result) {
+        showResult(projectCatalog.available ? "Memory collector is already running." : "Memory collector is waiting for the Code Space project catalog.");
+      } else {
+        showResult(`Discovered ${result.discovered}; imported ${result.imported.length}; acknowledged ${result.acknowledged.length}; failed ${result.failed.length}.`);
+      }
+    } finally {
+      const currentButton = document.querySelector("#run-memory-collector");
+      if (currentButton) currentButton.disabled = false;
+    }
+  });
 }
 
 function metricCard(icon, label, value, note, tone) {
@@ -265,10 +285,7 @@ function bindJobDialog(executionWorkers) {
   dialog.querySelector("#close-dialog").addEventListener("click", () => dialog.close());
   dialog.querySelector("#cancel-dialog").addEventListener("click", () => dialog.close());
   form.addEventListener("submit", handleCreate);
-  dialog.querySelector("#job-worker").addEventListener("change", (event) => {
-    copySelectedWorkerDefaults(event.currentTarget, executionWorkers);
-    capture();
-  });
+  dialog.querySelector("#job-worker").addEventListener("change", capture);
   dialog.querySelector("#multi-jobs-toggle").addEventListener("click", () => setCount(state.count === 1 ? 2 : 1));
   dialog.querySelector("#multi-job-count").addEventListener("change", (event) => setCount(Number(event.currentTarget.value)));
   dialog.querySelector("#refresh-projects").addEventListener("click", () => refreshProjectSelector(dialog));
@@ -305,11 +322,6 @@ function jobForm(executionWorkers) {
       <label>Target project<select id="job-project" name="project" ${projectCatalog.available && projectCatalog.projects.length ? "" : "disabled"}>${projectCatalog.available && projectCatalog.projects.length ? projectCatalog.projects.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") : '<option>Code Space projects unavailable</option>'}</select><span class="project-catalog-state" id="project-catalog-state">${escapeHtml(projectCatalog.message)}</span><button class="button secondary project-refresh" id="refresh-projects" type="button">Refresh projects</button></label>
     </div>
     <label>Assigned worker / agent<select id="job-worker" name="workerId"><option value="">Unassigned</option>${executionWorkers.map((worker) => `<option value="${escapeHtml(worker.id)}">${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`).join("")}</select></label>
-    <fieldset class="permission-editor">
-      <legend>Worker permissions</legend>
-      <p>All capabilities are off unless explicitly allowed.</p>
-      ${permissionFields()}
-    </fieldset>
     <p class="form-error" id="form-error" role="alert"></p>
     <div class="dialog-actions"><button type="button" class="button ghost" id="cancel-dialog">Cancel</button><button class="button primary" id="create-job-button" type="submit" ${projectCatalog.available && projectCatalog.projects.length ? "" : "disabled"}>Create job</button></div>
   </form>`;
@@ -323,13 +335,10 @@ function handleCreate(event) {
   try {
     const inputs = state.drafts.map((draft) => {
       const worker = getExecutionWorker(draft.workerId, workerStore.list());
-      const permissionForm = new FormData();
-      for (const { key } of CAPABILITIES) permissionForm.set(`capability.${key}`, draft[`capability.${key}`] || "off");
       return {
         ...draft,
         title: titleFromDraft(draft),
         worker: worker?.name || "Unassigned",
-        ...permissionValues(permissionForm),
       };
     });
     if (state.count > 1) {
@@ -372,26 +381,7 @@ function canSendJobToCodeSpace(job) {
   if (!projectCatalog.available || !projectCatalog.projects.includes(job.project)) return false;
   if (!worker || worker.status === "Disabled") return false;
 
-  const permissions = job.permissions || {};
-  const denials = job.deniedPermissions || {};
-  if (worker.id === "builtin:codex") {
-    return permissions.readFiles
-      && permissions.modifyFiles
-      && permissions.runTests
-      && permissions.useTerminal
-      && permissions.proposeResult;
-  }
-
-  if (permissions.useTerminal) return false;
-
-  if (permissions.modifyFiles) {
-    return permissions.proposeResult;
-  }
-
-  return permissions.readFiles
-    && permissions.runTests
-    && permissions.proposeResult
-    && denials.modifyFiles;
+  return !hasDispatchForJob(job.id);
 }
 
 function hasDispatchForJob(jobId) {
@@ -406,7 +396,7 @@ function renderDetail(id) {
     root.innerHTML = shell(`<section class="not-found"><p class="eyebrow">404</p><h1>Job not found</h1><a class="button secondary" href="#/jobs">Back to jobs</a></section>`, "jobs");
     return;
   }
-  const canSend = canSendJobToCodeSpace(job) && !hasDispatchForJob(job.id);
+  const canSend = canSendJobToCodeSpace(job);
   root.innerHTML = shell(`
     <header class="topbar detail-topbar"><a class="back-link" href="#/jobs">← Back to jobs</a><div class="detail-top-status"><span class="priority ${slug(job.priority)}">${job.priority}</span><span class="status ${slug(job.status)}">${job.status}</span></div></header>
     <section class="detail-page">
@@ -417,14 +407,6 @@ function renderDetail(id) {
           <div class="status-flow">${STATUSES.map((status) => `<button data-status="${status}" class="status-step ${job.status === status ? "active" : ""}"><span>${STATUSES.indexOf(status) + 1}</span>${status}</button>`).join("")}</div>
           <label>Result / handoff notes<textarea id="result" rows="7" placeholder="Capture the outcome, links, or review notes…">${escapeHtml(job.result)}</textarea></label>
           <div class="save-row"><span id="save-message" role="status"></span><button id="save-result" class="button primary">Save notes</button></div>
-        </section>
-        <section class="panel permission-card">
-          <div class="panel-head"><div><p class="eyebrow">AUTHORITY</p><h2>Worker permissions</h2></div><span class="count">Declaration only</span></div>
-          <form id="permission-form" class="permission-detail-form">
-            <p class="permission-help">These settings record the job boundary. Office does not execute them.</p>
-            ${permissionFields(job)}
-            <div class="save-row"><span id="permission-message" role="status"></span><button class="button primary" type="submit">Save permissions</button></div>
-          </form>
         </section>
         <aside class="panel facts-card">
           <div class="panel-head"><div><p class="eyebrow">DETAILS</p><h2>Job information</h2></div></div>
@@ -450,14 +432,6 @@ function renderDetail(id) {
     store.replace(updateJob(current, { result: document.querySelector("#result").value.trim() }));
     document.querySelector("#save-message").textContent = "Notes saved locally";
   });
-  document.querySelector("#permission-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const current = store.get(id);
-    store.replace(updateJob(current, permissionValues(new FormData(event.currentTarget))));
-    document.querySelector("#permission-message").textContent = "Permissions saved locally";
-    document.querySelector("#send-to-code-space").disabled =
-      !canSendJobToCodeSpace(store.get(id)) || hasDispatchForJob(id);
-  });
   document.querySelector("#assignment-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const worker = getExecutionWorker(new FormData(event.currentTarget).get("workerId"), workerStore.list());
@@ -472,19 +446,9 @@ function renderDetail(id) {
       renderDetail(id);
     } catch (error) {
       document.querySelector("#send-error").textContent = error?.message || "Could not send job to Code Space.";
-      button.disabled = canSendJobToCodeSpace(store.get(id)) && !hasDispatchForJob(id);
+      button.disabled = canSendJobToCodeSpace(store.get(id));
     }
   });
-}
-
-function copySelectedWorkerDefaults(select, workers) {
-  const worker = workers.find((item) => item.id === select.value);
-  if (!worker) return;
-  for (const { key } of CAPABILITIES) {
-    const field = select.form.elements.namedItem(`capability.${key}`);
-    if (field.value === "deny") continue;
-    field.value = worker.deniedPermissions[key] ? "deny" : worker.permissions[key] ? "allow" : "off";
-  }
 }
 
 function renderWorkers() {
@@ -631,16 +595,6 @@ function dispatchPreview(item) {
       <div><span>Created</span><strong>${formatDate(item.createdAt)}</strong></div>
     </div>
     <div class="dispatch-section"><p class="eyebrow">INSTRUCTIONS</p><p class="dispatch-instructions">${escapeHtml(item.instructions)}</p></div>
-    <div class="dispatch-section"><div class="dispatch-section-title"><p class="eyebrow">PERMISSION SNAPSHOT</p><span>Frozen at creation</span></div>
-      <div class="dispatch-permissions">${CAPABILITIES.map(({ key, label }) => {
-        const denied = item.explicitDenials[key];
-        const allowed = item.effectivePermissions[key] && !denied;
-        const state = denied ? "Explicitly denied" : allowed ? "Allowed" : "Not granted";
-        return `<div><span>${label}</span><strong class="snapshot-state ${denied ? "denied" : allowed ? "allowed" : "off"}">${state}</strong></div>`;
-      }).join("")}</div>
-    </div>
-    <div class="dispatch-section denial-section"><p class="eyebrow">EXPLICIT DENIALS</p>${CAPABILITIES.some(({ key }) => item.explicitDenials[key]) ? `<div class="denial-list">${CAPABILITIES.filter(({ key }) => item.explicitDenials[key]).map(({ label }) => `<span>⊘ ${label}</span>`).join("")}</div>` : '<p class="no-denials">No explicit denials recorded in this snapshot.</p>'}</div>
-    <div class="handoff-state"><span>Result / handoff capability</span><strong>${escapeHtml(item.resultHandoffCapabilityState)}</strong></div>
     <p class="export-note">Export creates a handoff file only. Nothing is executed.</p>
     <p class="dispatch-error" id="dispatch-error" role="alert"></p>
     <div class="dispatch-actions">
