@@ -12,21 +12,10 @@ export const BUILT_IN_EXECUTION_MODELS = Object.freeze([
 ]);
 
 function copyModel(model) {
-  const permissions = defaultPermissionSet();
-  const deniedPermissions = defaultPermissionSet();
-
-  if (model.id === "builtin:codex") {
-    permissions.readFiles = true;
-    permissions.modifyFiles = true;
-    permissions.runTests = true;
-    permissions.useTerminal = true;
-    permissions.proposeResult = true;
-  }
-
   return {
     ...model,
-    permissions,
-    deniedPermissions,
+    permissions: defaultPermissionSet(),
+    deniedPermissions: defaultPermissionSet(),
   };
 }
 
